@@ -1,0 +1,360 @@
+/*
+ * Mass Create & Edit - the item preview pane of the import step.
+ *
+ * The pane fills the element it is created in; that element needs a height.
+ * From the top: the header (notes that nothing else shows), the item's Form,
+ * and below it the relationships the import changes, as tabs that fold away.
+ *
+ * The pane draws no backgrounds of its own and inherits its text colour, so
+ * it follows the theme the client runs in. Lines and tints are mixed from the
+ * text colour, accents use the theme's primary colour, and the colours of the
+ * actions are tints of one hue over whatever is behind them. Elements with
+ * Aras's own classes keep the colours the client gives them.
+ */
+
+.mce-pv {
+	box-sizing: border-box;
+	display: flex;
+	flex: 1 1 auto;
+	flex-direction: column;
+	height: 100%;
+	min-height: 0;
+	font-size: 13px;
+	line-height: 1.45;
+	background: transparent;
+	color: inherit;
+}
+
+.mce-pv *,
+.mce-pv *::before,
+.mce-pv *::after {
+	box-sizing: border-box;
+}
+
+.mce-pv *:not([class^="aras-"]):not([class*=" aras-"]) {
+	font-size: inherit;
+	text-transform: none;
+}
+
+.mce-pv p {
+	margin: 2px 0;
+}
+
+.mce-pv-muted {
+	opacity: 0.72;
+}
+
+.mce-pv-errors,
+.mce-pv-warnings {
+	margin: 4px 0;
+	padding: 4px 8px 4px 24px;
+	border-left: 3px solid color-mix(in srgb, currentColor 35%, transparent);
+	border-radius: 2px;
+	background: color-mix(in srgb, currentColor 4%, transparent);
+}
+
+.mce-pv-errors {
+	border-left-color: #e0453f;
+}
+
+.mce-pv-error {
+	border-left: 3px solid #e0453f;
+}
+
+.mce-pv-pad {
+	padding: 6px 10px;
+}
+
+/* --- What a row does: one look for a row with errors and for the rows of a relationship --- */
+
+.mce-pv-badge {
+	display: inline-block;
+	min-width: 70px;
+	padding: 1px 6px;
+	border-radius: 3px;
+	text-align: center;
+	font-weight: 500;
+	line-height: 18px;
+	white-space: nowrap;
+	background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.mce-pv-badge-new {
+	background: color-mix(in srgb, #2e9d4f 26%, transparent);
+}
+
+.mce-pv-badge-update,
+.mce-pv-badge-changed {
+	background: color-mix(in srgb, #2f7ee0 26%, transparent);
+}
+
+.mce-pv-badge-delete,
+.mce-pv-badge-deleted {
+	background: color-mix(in srgb, #9b51c9 26%, transparent);
+}
+
+.mce-pv-badge-error {
+	background: color-mix(in srgb, #e0453f 28%, transparent);
+}
+
+/* --- Header --- */
+
+/* Notes that nothing else in the pane shows: most rows have none, and then no header. */
+.mce-pv-head {
+	flex: 0 1 auto;
+	min-height: 0;
+	overflow: auto;
+	padding: 8px 10px 6px;
+	border-bottom: 1px solid color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.mce-pv-head[hidden] {
+	display: none;
+}
+
+.mce-pv-heading {
+	font-weight: 600;
+}
+
+.mce-pv-heading .mce-pv-badge {
+	margin-right: 8px;
+}
+
+/* --- A part with different components in its places --- */
+
+.mce-pv-compare {
+	max-height: 260px;
+	margin: 4px 0;
+	overflow: auto;
+	border: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+}
+
+.mce-pv-compare-table {
+	width: 100%;
+	border-collapse: separate;
+	border-spacing: 0;
+}
+
+.mce-pv-compare-table th {
+	position: sticky;
+	top: 0;
+	z-index: 1;
+	text-align: left;
+	white-space: nowrap;
+}
+
+.mce-pv-compare-table td {
+	padding: 3px 8px;
+	border-bottom: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+	text-align: left;
+	vertical-align: top;
+}
+
+.mce-pv-compare-differs td {
+	background: color-mix(in srgb, #2f7ee0 18%, transparent);
+}
+
+.mce-pv-compare-missing {
+	font-style: italic;
+}
+
+.mce-pv-compare-this {
+	font-weight: 600;
+}
+
+/* --- The Form: it takes the room the header and the relationships leave --- */
+
+.mce-pv-form {
+	display: flex;
+	flex: 1 1 0;
+	flex-direction: column;
+	min-height: 160px;
+}
+
+.mce-pv-frame {
+	display: block;
+	flex: 1 1 0;
+	width: 100%;
+	min-height: 0;
+	border: 0;
+}
+
+.mce-pv-status {
+	flex: 0 0 auto;
+	margin: 6px 10px;
+	padding: 6px 10px;
+	border-left: 3px solid var(--theme-primary, #0f66cb);
+	border-radius: 2px;
+	background: color-mix(in srgb, currentColor 4%, transparent);
+}
+
+.mce-pv-status[hidden] {
+	display: none;
+}
+
+/* --- Relationships below the Form, like the relationships of an item --- */
+
+.mce-pv-acc {
+	display: flex;
+	flex: 0 1 auto;
+	flex-direction: column;
+	min-height: 36px;
+	border-top: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+}
+
+.mce-pv-acc[hidden],
+.mce-pv-acc-none[hidden] {
+	display: none;
+}
+
+.mce-pv-acc-head {
+	display: flex;
+	flex: 0 0 auto;
+	align-items: stretch;
+	min-height: 36px;
+	background: color-mix(in srgb, currentColor 4%, transparent);
+}
+
+.mce-pv-acc-head .aras-tabs {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.mce-pv-acc-head .aras-tabs__list-container {
+	overflow-x: auto;
+	scrollbar-width: thin;
+}
+
+.mce-pv-acc-head .aras-tabs__tab {
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+.mce-pv-tab-count {
+	margin-left: 6px;
+	font-weight: 400;
+	opacity: 0.72;
+}
+
+.mce-pv-acc-toggle {
+	display: flex;
+	flex: 0 0 auto;
+	align-items: center;
+	justify-content: center;
+	width: 40px;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: inherit;
+	cursor: pointer;
+}
+
+.mce-pv-acc-toggle:hover {
+	background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.mce-pv-acc-toggle:focus-visible {
+	outline: 2px solid var(--theme-primary, #0f66cb);
+	outline-offset: -2px;
+}
+
+.mce-pv-chevron {
+	width: 16px;
+	height: 16px;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 2;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+	transition: transform 100ms ease-out;
+}
+
+.mce-pv-acc-collapsed .mce-pv-chevron {
+	transform: rotate(180deg);
+}
+
+.mce-pv-acc-body {
+	flex: 0 1 230px;
+	height: 230px;
+	min-height: 0;
+	overflow: auto;
+}
+
+.mce-pv-acc-collapsed .mce-pv-acc-body {
+	display: none;
+}
+
+.mce-pv-acc-none {
+	flex: 0 0 auto;
+	margin: 0;
+	padding: 8px 12px;
+	border-top: 1px solid color-mix(in srgb, currentColor 10%, transparent);
+}
+
+/* --- No item to show --- */
+
+.mce-pv-empty {
+	display: none;
+	padding: 10px;
+}
+
+.mce-pv-is-empty .mce-pv-head,
+.mce-pv-is-empty .mce-pv-form,
+.mce-pv-is-empty .mce-pv-acc,
+.mce-pv-is-empty .mce-pv-acc-none {
+	display: none;
+}
+
+.mce-pv-is-empty .mce-pv-empty {
+	display: block;
+	overflow: auto;
+}
+
+/* --- The rows of a relationship --- */
+
+.mce-pv-grid {
+	min-width: 100%;
+	border-collapse: separate;
+	border-spacing: 0;
+}
+
+.mce-pv-grid th {
+	position: sticky;
+	top: 0;
+	z-index: 1;
+	text-align: left;
+}
+
+.mce-pv-grid td {
+	max-width: 320px;
+}
+
+.mce-pv-row-unchanged > td {
+	opacity: 0.72;
+}
+
+.mce-pv-row-deleted > td:not(:first-child) {
+	text-decoration: line-through;
+	opacity: 0.6;
+}
+
+.mce-pv-was {
+	margin-right: 4px;
+	text-decoration: line-through;
+	opacity: 0.65;
+}
+
+.mce-pv-changed .mce-pv-value {
+	padding: 0 3px;
+	border-radius: 2px;
+	background: color-mix(in srgb, #2f7ee0 18%, transparent);
+}
+
+.mce-pv-row-focus > td {
+	opacity: 1;
+	box-shadow: inset 0 1px 0 var(--theme-primary, #0f66cb), inset 0 -1px 0 var(--theme-primary, #0f66cb);
+}
+
+.mce-pv-row-focus > td:first-child {
+	box-shadow: inset 3px 0 0 var(--theme-primary, #0f66cb), inset 0 1px 0 var(--theme-primary, #0f66cb), inset 0 -1px 0 var(--theme-primary, #0f66cb);
+}

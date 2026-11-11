@@ -1,0 +1,19 @@
+<resources>
+	<!--
+		These values end up in package.config as they are. So:
+		- an ampersand is written "&amp;amp;" here;
+		- avoid a double quote and the less-than sign in a value;
+		- avoid the letter sequences lowercase "not" and uppercase "AND" /
+		  "OR" (see the maintainer note in package.config).
+	-->
+	<resource key="Innovator.Dir" value="Install Path" />
+	<resource key="Innovator.URL" value="Server URL" />
+	<resource key="Innovator.DB" value="Database" />
+	<resource key="Innovator.Username" value="Username" />
+	<resource key="Innovator.Password" value="Password" />
+
+	<resource key="Pkg.IS.Label" value="FRG Mass Create &amp;amp; Edit - Client Code Tree" />
+	<resource key="Pkg.IS.Desc" value="Copies the Mass Create &amp;amp; Edit client files into the Innovator client (Client/customer/masscreateedit) and refreshes the browser cache token." />
+	<resource key="Pkg.DB.Label" value="FRG Mass Create &amp;amp; Edit - Database" />
+	<resource key="Pkg.DB.Desc" value="Adds the Mass Operations category to the Administration menu where it is missing, imports the Mass Create &amp;amp; Edit items into the Innovator database, then adds the Default configuration item where there is none." />
+</resources>

@@ -1,0 +1,60 @@
+﻿<AML>
+ <Item type="Permission" id="93080DAE246D537C8161C884C7A5F89C" action="add">
+  <is_private>0</is_private>
+  <name>FRG_MassCreateEdit</name>
+  <Relationships>
+   <Item type="Access" id="3FEA6360A90002555D3089138A815E9B" action="add">
+    <can_change_access>0</can_change_access>
+    <can_delete>1</can_delete>
+    <can_discover>1</can_discover>
+    <can_get>1</can_get>
+    <can_update>1</can_update>
+    <related_id keyed_name="Owner" type="Identity">
+     <Item type="Identity" action="get" select="id">
+      <name>Owner</name>
+     </Item>
+    </related_id>
+    <show_permissions_warning>0</show_permissions_warning>
+    <sort_order>256</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="Permission">93080DAE246D537C8161C884C7A5F89C</source_id>
+   </Item>
+   <Item type="Access" id="951F1975829D28FCEAF0B356FA6A820C" action="add">
+    <can_change_access>1</can_change_access>
+    <can_delete>1</can_delete>
+    <can_discover>1</can_discover>
+    <can_get>1</can_get>
+    <can_update>1</can_update>
+    <related_id keyed_name="Administrators" type="Identity">2618D6F5A90949BAA7E920D1B04C7EE1</related_id>
+    <show_permissions_warning>0</show_permissions_warning>
+    <sort_order>512</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="Permission">93080DAE246D537C8161C884C7A5F89C</source_id>
+   </Item>
+   <Item type="Access" id="F1018F6D182FB8D5C03036EDE4072A8A" action="add">
+    <can_change_access>0</can_change_access>
+    <can_delete>1</can_delete>
+    <can_discover>1</can_discover>
+    <can_get>1</can_get>
+    <can_update>1</can_update>
+    <related_id keyed_name="Creator" type="Identity">
+     <Item type="Identity" action="get" select="id">
+      <name>Creator</name>
+     </Item>
+    </related_id>
+    <show_permissions_warning>0</show_permissions_warning>
+    <sort_order>128</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="Permission">93080DAE246D537C8161C884C7A5F89C</source_id>
+   </Item>
+   <Item type="Access" id="FC7B5B5F198EB2CF5851E509269CF9C8" action="add">
+    <can_change_access>0</can_change_access>
+    <can_delete>0</can_delete>
+    <can_discover>1</can_discover>
+    <can_get>1</can_get>
+    <can_update>0</can_update>
+    <related_id keyed_name="FRG Mass Create &amp; Edit Viewers" type="Identity">77953FBC52F154425AD47525B82889E9</related_id>
+    <show_permissions_warning>0</show_permissions_warning>
+    <sort_order>384</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="Permission">93080DAE246D537C8161C884C7A5F89C</source_id>
+   </Item>
+  </Relationships>
+ </Item>
+</AML>

@@ -1,0 +1,7 @@
+﻿<AML>
+ <Item type="Identity" id="77953FBC52F154425AD47525B82889E9" action="add">
+  <description>Can view every Mass Create &amp; Edit job, not only their own.</description>
+  <is_alias>0</is_alias>
+  <name>FRG Mass Create &amp; Edit Viewers</name>
+ </Item>
+</AML>

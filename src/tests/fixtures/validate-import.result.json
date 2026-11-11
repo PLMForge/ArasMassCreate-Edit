@@ -1,0 +1,507 @@
+{
+	"formatVersion": 1,
+	"status": "validated",
+	"job": {
+		"id": "F5EF55CAC1054E88F9B1250115339F7C",
+		"number": "MCE-000001",
+		"state": "Generated"
+	},
+	"database": "SampleDatabase",
+	"limits": {
+		"maxRows": 5000,
+		"maxFileSizeMb": 10,
+		"batchSize": 500
+	},
+	"definitionChanged": false,
+	"issues": [
+		{
+			"severity": "warning",
+			"code": "COLUMN_UNKNOWN",
+			"message": "Column 'legacy_code' is no longer part of this sheet: the property was removed, or it can no longer be edited. Its values are ignored.",
+			"sheet": "Part",
+			"column": "legacy_code"
+		}
+	],
+	"sheets": [
+		{
+			"index": 0,
+			"sheetName": "Part",
+			"kind": "main",
+			"itemType": {
+				"id": "C97E5B930EB5A08D7E4C7836046694D9",
+				"name": "Part",
+				"label": "Part",
+				"isVersionable": true
+			},
+			"relationshipType": null,
+			"createOnly": false,
+			"keyColumns": [
+				"item_number"
+			],
+			"matchKeyColumns": [],
+			"columns": [
+				{
+					"id": "item_number",
+					"property": "item_number",
+					"label": "Part Number",
+					"dataType": "string",
+					"pattern": null,
+					"status": "ok"
+				},
+				{
+					"id": "owned_by_id",
+					"property": "owned_by_id",
+					"label": "Assigned Creator",
+					"dataType": "item",
+					"pattern": null,
+					"status": "ok"
+				},
+				{
+					"id": "name",
+					"property": "name",
+					"label": "Name",
+					"dataType": "string",
+					"pattern": null,
+					"status": "ok"
+				},
+				{
+					"id": "managed_by_id",
+					"property": "managed_by_id",
+					"label": "Designated User",
+					"dataType": "item",
+					"pattern": null,
+					"status": "ok"
+				},
+				{
+					"id": "classification",
+					"property": "classification",
+					"label": "Type",
+					"dataType": "string",
+					"pattern": null,
+					"status": "ok"
+				},
+				{
+					"id": "unit",
+					"property": "unit",
+					"label": "Unit",
+					"dataType": "list",
+					"pattern": null,
+					"status": "ok"
+				},
+				{
+					"id": "make_buy",
+					"property": "make_buy",
+					"label": "Make / Buy",
+					"dataType": "list",
+					"pattern": null,
+					"status": "ok"
+				},
+				{
+					"id": "effective_date",
+					"property": "effective_date",
+					"label": "Effective Date",
+					"dataType": "date",
+					"pattern": "short_date_time",
+					"status": "ok"
+				},
+				{
+					"id": "description",
+					"property": "description",
+					"label": "Description",
+					"dataType": "string",
+					"pattern": null,
+					"status": "ok"
+				},
+				{
+					"id": "control_type",
+					"property": "control_type",
+					"label": "Control Type",
+					"dataType": "list",
+					"pattern": null,
+					"status": "ok"
+				},
+				{
+					"id": "legacy_code",
+					"property": null,
+					"label": "legacy_code",
+					"dataType": "string",
+					"pattern": null,
+					"status": "unknown"
+				}
+			],
+			"totals": {
+				"rows": 5,
+				"new": 1,
+				"update": 1,
+				"none": 1,
+				"delete": 0,
+				"error": 2,
+				"errors": 3,
+				"warnings": 2
+			},
+			"rows": [
+				{
+					"row": 2,
+					"action": "none",
+					"digest": "d51950c85138a7ce3c53d01ea7d9c101",
+					"id": "10C9E2CDE0416CA92132DF8805841B00",
+					"keyedName": "TA-001",
+					"issues": [
+						{
+							"column": "legacy_code",
+							"severity": "warning",
+							"code": "COLUMN_UNKNOWN",
+							"message": "Column 'legacy_code' is no longer part of this sheet. Its value is ignored."
+						}
+					]
+				},
+				{
+					"row": 3,
+					"action": "update",
+					"digest": "c89dc318e7cf2362784a778f25c2ed86",
+					"id": "D4E06766E751A61F6BCDEC13D149FD15",
+					"keyedName": "TP-001",
+					"issues": [
+						{
+							"column": null,
+							"severity": "warning",
+							"code": "CHANGED_SINCE_EXPORT",
+							"message": "The item was changed in Aras after the workbook was generated. Check the old values of the changed cells before importing."
+						}
+					],
+					"values": {
+						"owned_by_id": "D307AF07B9B308341F0ECB1513548651",
+						"name": "Test Part 1, revised",
+						"make_buy": "Buy"
+					},
+					"display": {
+						"owned_by_id": "Administrators"
+					},
+					"old": {
+						"owned_by_id": "",
+						"name": "Test Part 1",
+						"make_buy": "Make"
+					}
+				},
+				{
+					"row": 4,
+					"action": "new",
+					"digest": "6eb4a6fd4aca8985f83f820fe7abd280",
+					"values": {
+						"item_number": "P-9001",
+						"name": "New bracket",
+						"classification": "Component",
+						"unit": "EA",
+						"effective_date": "2026-12-01T00:00:00"
+					}
+				},
+				{
+					"row": 5,
+					"action": "error",
+					"digest": "07a63f73c91fccb76e56c3bd2d40b25b",
+					"issues": [
+						{
+							"column": "name",
+							"severity": "error",
+							"code": "TOO_LONG",
+							"message": "Name: the text has 70 characters, and at most 64 are allowed."
+						},
+						{
+							"column": "unit",
+							"severity": "error",
+							"code": "NOT_IN_LIST",
+							"message": "Unit: 'furlong' is not a value of the list. Pick a value from the drop-down."
+						}
+					]
+				},
+				{
+					"row": 6,
+					"action": "error",
+					"digest": "07a63f73c91fccb76e56c3bd2d40b25b",
+					"issues": [
+						{
+							"column": "item_number",
+							"severity": "error",
+							"code": "KEY_BLANK",
+							"message": "Part Number: a key column is required on every row."
+						}
+					]
+				}
+			]
+		},
+		{
+			"index": 1,
+			"sheetName": "BOM",
+			"kind": "relationship",
+			"itemType": {
+				"id": "4E4484AFFE9FAA6F7EDFD6B442DA8E9B",
+				"name": "Part BOM",
+				"label": "Part BOM",
+				"isVersionable": false
+			},
+			"relationshipType": {
+				"id": "42A051CC6378FB9C1BA3B32FEF03B46C",
+				"name": "Part BOM",
+				"label": "BOM",
+				"relatedItemType": {
+					"id": "C97E5B930EB5A08D7E4C7836046694D9",
+					"name": "Part",
+					"label": "Part",
+					"isVersionable": true
+				}
+			},
+			"createOnly": false,
+			"keyColumns": [
+				"parent.item_number",
+				"related.item_number"
+			],
+			"matchKeyColumns": [
+				"parent.item_number",
+				"related.item_number",
+				"sort_order"
+			],
+			"columns": [
+				{
+					"id": "parent.item_number",
+					"property": "item_number",
+					"label": "Part Number",
+					"dataType": "string",
+					"pattern": null,
+					"status": "ok"
+				},
+				{
+					"id": "related.item_number",
+					"property": "item_number",
+					"label": "Part Number",
+					"dataType": "string",
+					"pattern": null,
+					"status": "ok"
+				},
+				{
+					"id": "quantity",
+					"property": "quantity",
+					"label": "Quantity",
+					"dataType": "float",
+					"pattern": null,
+					"status": "ok"
+				},
+				{
+					"id": "reference_designator",
+					"property": "reference_designator",
+					"label": "Reference Designator",
+					"dataType": "string",
+					"pattern": null,
+					"status": "ok"
+				},
+				{
+					"id": "sort_order",
+					"property": "sort_order",
+					"label": "Sequence",
+					"dataType": "integer",
+					"pattern": null,
+					"status": "ok"
+				}
+			],
+			"totals": {
+				"rows": 7,
+				"new": 3,
+				"update": 1,
+				"none": 1,
+				"delete": 0,
+				"error": 2,
+				"errors": 3,
+				"warnings": 1
+			},
+			"rows": [
+				{
+					"row": 2,
+					"action": "none",
+					"digest": "f1d07b8e154f28336ca2bed8e039c0b3",
+					"id": "CC039BC9DB5661565B0E6306B413B9DB",
+					"keyedName": "CC039BC9DB5661565B0E6306B413B9DB",
+					"parent": {
+						"sheet": 0,
+						"row": 2,
+						"id": "10C9E2CDE0416CA92132DF8805841B00",
+						"keyedName": "TA-001"
+					},
+					"related": {
+						"id": "D4E06766E751A61F6BCDEC13D149FD15",
+						"keyedName": "TP-001"
+					}
+				},
+				{
+					"row": 3,
+					"action": "update",
+					"digest": "0acbb8d40c30f45981ee9ba9fe93731a",
+					"id": "87E8CACE93AE3AD01D706A888E9328D3",
+					"keyedName": "87E8CACE93AE3AD01D706A888E9328D3",
+					"values": {
+						"quantity": "5",
+						"reference_designator": "R1"
+					},
+					"old": {
+						"quantity": "3",
+						"reference_designator": ""
+					},
+					"parent": {
+						"sheet": 0,
+						"row": 2,
+						"id": "10C9E2CDE0416CA92132DF8805841B00",
+						"keyedName": "TA-001"
+					},
+					"related": {
+						"id": "E7D599F81E3D0DC277C10ED107C173EE",
+						"keyedName": "TP-002"
+					}
+				},
+				{
+					"row": 4,
+					"action": "new",
+					"digest": "e56e4cd297e072272aa2f672222967a9",
+					"values": {
+						"sort_order": "4",
+						"quantity": "2"
+					},
+					"parent": {
+						"sheet": 0,
+						"row": 2,
+						"id": "10C9E2CDE0416CA92132DF8805841B00",
+						"keyedName": "TA-001"
+					},
+					"related": {
+						"id": "1CC1E8ED2CCD82493370E7714277EC21",
+						"keyedName": "TP-004"
+					}
+				},
+				{
+					"row": 5,
+					"action": "new",
+					"digest": "0706d1a0303c96eeb6a2972df3922353",
+					"issues": [
+						{
+							"column": null,
+							"severity": "warning",
+							"code": "REPEATED_CHILD",
+							"message": "The same related item is under this parent more than once (rows 2, 5). That is allowed; check that it is meant."
+						}
+					],
+					"values": {
+						"sort_order": "5",
+						"quantity": "1"
+					},
+					"parent": {
+						"sheet": 0,
+						"row": 2,
+						"id": "10C9E2CDE0416CA92132DF8805841B00",
+						"keyedName": "TA-001"
+					},
+					"related": {
+						"id": "D4E06766E751A61F6BCDEC13D149FD15",
+						"keyedName": "TP-001"
+					}
+				},
+				{
+					"row": 6,
+					"action": "new",
+					"digest": "510a935daa2d3437cd04a5c5dd1f7f41",
+					"values": {
+						"sort_order": "1",
+						"quantity": "4"
+					},
+					"parent": {
+						"sheet": 0,
+						"row": 4,
+						"id": null,
+						"keyedName": null
+					},
+					"related": {
+						"id": "D4E06766E751A61F6BCDEC13D149FD15",
+						"keyedName": "TP-001"
+					}
+				},
+				{
+					"row": 7,
+					"action": "error",
+					"digest": "50a3a2f124c8509a7b6af82d384318be",
+					"issues": [
+						{
+							"column": null,
+							"severity": "error",
+							"code": "PARENT_HAS_ERROR",
+							"message": "The parent (row 5 of the first sheet) has an error, so this row cannot be imported."
+						}
+					],
+					"parent": {
+						"sheet": 0,
+						"row": 5,
+						"id": null,
+						"keyedName": null
+					},
+					"related": {
+						"id": "D4E06766E751A61F6BCDEC13D149FD15",
+						"keyedName": "TP-001"
+					}
+				},
+				{
+					"row": 8,
+					"action": "error",
+					"digest": "4bd955de759ed3a7d175ddd717de8e0b",
+					"issues": [
+						{
+							"column": "quantity",
+							"severity": "error",
+							"code": "NOT_A_NUMBER",
+							"message": "Quantity: 'two' is not a number. Use digits, with a point for decimals."
+						},
+						{
+							"column": null,
+							"severity": "error",
+							"code": "RELATED_NOT_FOUND",
+							"message": "No Part with this key was found, so the row has no related item."
+						}
+					],
+					"parent": {
+						"sheet": 0,
+						"row": 2,
+						"id": "10C9E2CDE0416CA92132DF8805841B00",
+						"keyedName": "TA-001"
+					},
+					"related": null
+				}
+			],
+			"parents": [
+				{
+					"row": 2,
+					"id": "10C9E2CDE0416CA92132DF8805841B00",
+					"keyedName": "TA-001",
+					"existing": 3,
+					"untouched": 1
+				},
+				{
+					"row": 4,
+					"id": null,
+					"keyedName": null,
+					"existing": 0,
+					"untouched": 0
+				}
+			],
+			"parentSheet": 0,
+			"relatedSheet": 0
+		}
+	],
+	"totals": {
+		"rows": 12,
+		"new": 4,
+		"update": 2,
+		"none": 2,
+		"delete": 0,
+		"error": 4,
+		"errors": 6,
+		"warnings": 4
+	},
+	"stats": {
+		"elapsedMs": 120,
+		"requests": 21
+	}
+}

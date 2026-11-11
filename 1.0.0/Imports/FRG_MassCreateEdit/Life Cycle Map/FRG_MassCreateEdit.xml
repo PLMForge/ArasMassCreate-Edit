@@ -1,0 +1,92 @@
+﻿<AML>
+ <Item type="Life Cycle Map" id="3155679E77B0ECA640A9C25534D270B2" action="add">
+  <description>Progress of a Mass Create &amp; Edit job, from Draft to Imported.</description>
+  <start_state keyed_name="Draft" type="Life Cycle State">377118289672B3615585ADB6C37B16F1</start_state>
+  <name>FRG_MassCreateEdit</name>
+  <Relationships>
+   <Item type="Life Cycle State" id="377118289672B3615585ADB6C37B16F1" action="add">
+    <image>../images/LifeCycleState.svg</image>
+    <label xml:lang="en">Draft</label>
+    <set_is_released>0</set_is_released>
+    <set_not_lockable>0</set_not_lockable>
+    <sort_order>128</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="Life Cycle Map">3155679E77B0ECA640A9C25534D270B2</source_id>
+    <x>30</x>
+    <y>40</y>
+    <name>Draft</name>
+   </Item>
+   <Item type="Life Cycle State" id="83E3CB3FFC85F5F6AC22029D7232203A" action="add">
+    <image>../images/LifeCycleState.svg</image>
+    <label xml:lang="en">Generated</label>
+    <set_is_released>0</set_is_released>
+    <set_not_lockable>0</set_not_lockable>
+    <sort_order>256</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="Life Cycle Map">3155679E77B0ECA640A9C25534D270B2</source_id>
+    <state_permission_id keyed_name="FRG_MassCreateEdit_Generated" type="Permission">42812BEB6FFFDB040C28B3AED5FF7A2D</state_permission_id>
+    <x>190</x>
+    <y>40</y>
+    <name>Generated</name>
+   </Item>
+   <Item type="Life Cycle State" id="09B24BD404F52F92F1CE44F8D0A591E5" action="add">
+    <image>../images/LifeCycleState.svg</image>
+    <label xml:lang="en">Imported</label>
+    <set_is_released>0</set_is_released>
+    <set_not_lockable>0</set_not_lockable>
+    <sort_order>512</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="Life Cycle Map">3155679E77B0ECA640A9C25534D270B2</source_id>
+    <state_permission_id keyed_name="FRG_MassCreateEdit_Imported" type="Permission">308A911BCF7AB5CAFFF25364594404A2</state_permission_id>
+    <x>510</x>
+    <y>40</y>
+    <name>Imported</name>
+   </Item>
+   <Item type="Life Cycle State" id="7FAC7E0B6E65FE5064364E5EEACFD938" action="add">
+    <image>../images/LifeCycleState.svg</image>
+    <label xml:lang="en">Validated</label>
+    <set_is_released>0</set_is_released>
+    <set_not_lockable>0</set_not_lockable>
+    <sort_order>384</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="Life Cycle Map">3155679E77B0ECA640A9C25534D270B2</source_id>
+    <state_permission_id keyed_name="FRG_MassCreateEdit_Generated" type="Permission">42812BEB6FFFDB040C28B3AED5FF7A2D</state_permission_id>
+    <x>350</x>
+    <y>40</y>
+    <name>Validated</name>
+   </Item>
+   <Item type="Life Cycle Transition" id="39E2F133C5BDBE06F519038F7C184CAE" action="add">
+    <execute_post_in_main_txn>0</execute_post_in_main_txn>
+    <from_state keyed_name="Draft" type="Life Cycle State">377118289672B3615585ADB6C37B16F1</from_state>
+    <get_comment>0</get_comment>
+    <role keyed_name="FRG Mass Create &amp; Edit Steps" type="Identity">B56E4D1B3F4DDC99AECEC5AFB250BF63</role>
+    <sort_order>128</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="Life Cycle Map">3155679E77B0ECA640A9C25534D270B2</source_id>
+    <to_state keyed_name="Generated" type="Life Cycle State">83E3CB3FFC85F5F6AC22029D7232203A</to_state>
+   </Item>
+   <Item type="Life Cycle Transition" id="1F225AAC4CF3F6478023DC2770AA4FA6" action="add">
+    <execute_post_in_main_txn>0</execute_post_in_main_txn>
+    <from_state keyed_name="Validated" type="Life Cycle State">7FAC7E0B6E65FE5064364E5EEACFD938</from_state>
+    <get_comment>0</get_comment>
+    <role keyed_name="FRG Mass Create &amp; Edit Steps" type="Identity">B56E4D1B3F4DDC99AECEC5AFB250BF63</role>
+    <sort_order>512</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="Life Cycle Map">3155679E77B0ECA640A9C25534D270B2</source_id>
+    <to_state keyed_name="Generated" type="Life Cycle State">83E3CB3FFC85F5F6AC22029D7232203A</to_state>
+   </Item>
+   <Item type="Life Cycle Transition" id="BCF52A8A4DBCF23CDD26ABD7FC91EA44" action="add">
+    <execute_post_in_main_txn>0</execute_post_in_main_txn>
+    <from_state keyed_name="Validated" type="Life Cycle State">7FAC7E0B6E65FE5064364E5EEACFD938</from_state>
+    <get_comment>0</get_comment>
+    <role keyed_name="FRG Mass Create &amp; Edit Steps" type="Identity">B56E4D1B3F4DDC99AECEC5AFB250BF63</role>
+    <sort_order>384</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="Life Cycle Map">3155679E77B0ECA640A9C25534D270B2</source_id>
+    <to_state keyed_name="Imported" type="Life Cycle State">09B24BD404F52F92F1CE44F8D0A591E5</to_state>
+   </Item>
+   <Item type="Life Cycle Transition" id="2A40A02ED07AB1F3C4C4FDA228DA19CC" action="add">
+    <execute_post_in_main_txn>0</execute_post_in_main_txn>
+    <from_state keyed_name="Generated" type="Life Cycle State">83E3CB3FFC85F5F6AC22029D7232203A</from_state>
+    <get_comment>0</get_comment>
+    <role keyed_name="FRG Mass Create &amp; Edit Steps" type="Identity">B56E4D1B3F4DDC99AECEC5AFB250BF63</role>
+    <sort_order>256</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="Life Cycle Map">3155679E77B0ECA640A9C25534D270B2</source_id>
+    <to_state keyed_name="Validated" type="Life Cycle State">7FAC7E0B6E65FE5064364E5EEACFD938</to_state>
+   </Item>
+  </Relationships>
+ </Item>
+</AML>

@@ -1,0 +1,151 @@
+{
+  "formatVersion": 1,
+  "database": "SampleDatabase",
+  "generatedOn": "2026-11-05T09:30:00",
+  "language": "en",
+  "sheets": [
+    {
+      "kind": "main",
+      "itemType": { "id": "4F1AC04A2B484F3ABA4E20DB63808A88", "name": "Part", "label": "Part", "isVersionable": true },
+      "relationshipType": null,
+      "createOnly": false,
+      "classPaths": ["Component", "Assembly", "Material", "Software"],
+      "columns": [
+        {
+          "id": "item_number", "role": "property", "property": "item_number", "label": "Part Number",
+          "dataType": "string", "required": true, "isKey": true, "isMatchKey": false, "isClassification": false,
+          "source": "form", "storedLength": 32, "precision": null, "scale": null, "pattern": null,
+          "minRange": null, "maxRange": null, "rangeInclusive": false, "defaultValue": null,
+          "classPath": null, "listId": null, "itemTarget": null
+        },
+        {
+          "id": "name", "role": "property", "property": "name", "label": "Name",
+          "dataType": "string", "required": false, "isKey": false, "isMatchKey": false, "isClassification": false,
+          "source": "form", "storedLength": 64, "precision": null, "scale": null, "pattern": null,
+          "minRange": null, "maxRange": null, "rangeInclusive": false, "defaultValue": null,
+          "classPath": null, "listId": null, "itemTarget": null
+        },
+        {
+          "id": "classification", "role": "property", "property": "classification", "label": "Type",
+          "dataType": "string", "required": false, "isKey": false, "isMatchKey": false, "isClassification": true,
+          "source": "form", "storedLength": 512, "precision": null, "scale": null, "pattern": null,
+          "minRange": null, "maxRange": null, "rangeInclusive": false, "defaultValue": null,
+          "classPath": null, "listId": null, "itemTarget": null
+        },
+        {
+          "id": "description", "role": "property", "property": "description", "label": "Description",
+          "dataType": "text", "required": false, "isKey": false, "isMatchKey": false, "isClassification": false,
+          "source": "form", "storedLength": null, "precision": null, "scale": null, "pattern": null,
+          "minRange": null, "maxRange": null, "rangeInclusive": false, "defaultValue": null,
+          "classPath": null, "listId": null, "itemTarget": null
+        },
+        {
+          "id": "unit", "role": "property", "property": "unit", "label": "Unit",
+          "dataType": "list", "required": false, "isKey": false, "isMatchKey": false, "isClassification": false,
+          "source": "form", "storedLength": null, "precision": null, "scale": null, "pattern": null,
+          "minRange": null, "maxRange": null, "rangeInclusive": false, "defaultValue": "EA",
+          "classPath": null, "listId": "A1B2C3D4E5F60718293A4B5C6D7E8F90", "itemTarget": null
+        },
+        {
+          "id": "make_buy", "role": "property", "property": "make_buy", "label": "Make / Buy",
+          "dataType": "list", "required": true, "isKey": false, "isMatchKey": false, "isClassification": false,
+          "source": "form", "storedLength": null, "precision": null, "scale": null, "pattern": null,
+          "minRange": null, "maxRange": null, "rangeInclusive": false, "defaultValue": "Make",
+          "classPath": null, "listId": "B2C3D4E5F60718293A4B5C6D7E8F90A1", "itemTarget": null
+        },
+        {
+          "id": "effective_date", "role": "property", "property": "effective_date", "label": "Effective Date",
+          "dataType": "date", "required": false, "isKey": false, "isMatchKey": false, "isClassification": false,
+          "source": "form", "storedLength": null, "precision": null, "scale": null, "pattern": "short_date",
+          "minRange": null, "maxRange": null, "rangeInclusive": false, "defaultValue": null,
+          "classPath": null, "listId": null, "itemTarget": null
+        },
+        {
+          "id": "weight", "role": "property", "property": "weight", "label": "Weight",
+          "dataType": "float", "required": false, "isKey": false, "isMatchKey": false, "isClassification": false,
+          "source": "grid", "storedLength": null, "precision": null, "scale": null, "pattern": null,
+          "minRange": 0, "maxRange": null, "rangeInclusive": true, "defaultValue": null,
+          "classPath": "Component", "listId": null, "itemTarget": null
+        },
+        {
+          "id": "owned_by_id", "role": "property", "property": "owned_by_id", "label": "Assigned Creator",
+          "dataType": "item", "required": false, "isKey": false, "isMatchKey": false, "isClassification": false,
+          "source": "form", "storedLength": null, "precision": null, "scale": null, "pattern": null,
+          "minRange": null, "maxRange": null, "rangeInclusive": false, "defaultValue": null,
+          "classPath": null, "listId": null,
+          "itemTarget": { "id": "E582AB17663F4EF28460015B2BE9E094", "name": "Identity", "label": "Identity", "isVersionable": false, "isPolymorphic": false }
+        }
+      ]
+    },
+    {
+      "kind": "relationship",
+      "itemType": { "id": "5E9C5A12CC58413A8670CF4003C57848", "name": "Part BOM", "label": "BOM", "isVersionable": false },
+      "relationshipType": {
+        "id": "159C6D88795B4A86864420863466F728", "name": "Part BOM", "label": "BOM",
+        "relatedItemType": { "id": "4F1AC04A2B484F3ABA4E20DB63808A88", "name": "Part", "label": "Part", "isVersionable": true }
+      },
+      "createOnly": true,
+      "classPaths": null,
+      "parentSheet": 0,
+      "relatedSheet": 0,
+      "columns": [
+        {
+          "id": "parent.item_number", "role": "parentKey", "property": "item_number", "label": "Parent Part Number",
+          "dataType": "string", "required": true, "isKey": true, "isMatchKey": true, "isClassification": false,
+          "source": "key", "storedLength": 32, "precision": null, "scale": null, "pattern": null,
+          "minRange": null, "maxRange": null, "rangeInclusive": false, "defaultValue": null,
+          "classPath": null, "listId": null, "itemTarget": null
+        },
+        {
+          "id": "related.item_number", "role": "relatedKey", "property": "item_number", "label": "Child Part Number",
+          "dataType": "string", "required": true, "isKey": true, "isMatchKey": true, "isClassification": false,
+          "source": "key", "storedLength": 32, "precision": null, "scale": null, "pattern": null,
+          "minRange": null, "maxRange": null, "rangeInclusive": false, "defaultValue": null,
+          "classPath": null, "listId": null, "itemTarget": null
+        },
+        {
+          "id": "sort_order", "role": "property", "property": "sort_order", "label": "Sequence",
+          "dataType": "integer", "required": false, "isKey": false, "isMatchKey": true, "isClassification": false,
+          "source": "grid", "storedLength": null, "precision": null, "scale": null, "pattern": null,
+          "minRange": null, "maxRange": null, "rangeInclusive": false, "defaultValue": null,
+          "classPath": null, "listId": null, "itemTarget": null
+        },
+        {
+          "id": "quantity", "role": "property", "property": "quantity", "label": "Quantity",
+          "dataType": "float", "required": false, "isKey": false, "isMatchKey": false, "isClassification": false,
+          "source": "form", "storedLength": null, "precision": null, "scale": null, "pattern": null,
+          "minRange": null, "maxRange": null, "rangeInclusive": false, "defaultValue": "1",
+          "classPath": null, "listId": null, "itemTarget": null
+        },
+        {
+          "id": "reference_designator", "role": "property", "property": "reference_designator", "label": "Reference Designator",
+          "dataType": "string", "required": false, "isKey": false, "isMatchKey": false, "isClassification": false,
+          "source": "form", "storedLength": 256, "precision": null, "scale": null, "pattern": null,
+          "minRange": null, "maxRange": null, "rangeInclusive": false, "defaultValue": null,
+          "classPath": null, "listId": null, "itemTarget": null
+        }
+      ]
+    }
+  ],
+  "lists": {
+    "A1B2C3D4E5F60718293A4B5C6D7E8F90": {
+      "name": "Unit",
+      "values": [
+        { "value": "EA", "label": "Each" },
+        { "value": "KG", "label": "Kilogram, net" },
+        { "value": "M", "label": "Metre" },
+        { "value": "IN", "label": "" },
+        { "value": "L", "label": "Volume" },
+        { "value": "GAL", "label": "Volume" }
+      ]
+    },
+    "B2C3D4E5F60718293A4B5C6D7E8F90A1": {
+      "name": "Make Buy",
+      "values": [
+        { "value": "Make", "label": "Make" },
+        { "value": "Buy", "label": "Buy" }
+      ]
+    }
+  },
+  "definitionHash": "sha256:3f6c1b2a9d0e4f5a6b7c8d9e0f1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c"
+}

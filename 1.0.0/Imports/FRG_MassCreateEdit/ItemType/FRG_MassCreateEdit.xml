@@ -1,0 +1,577 @@
+﻿<AML>
+ <Item type="ItemType" id="406C27A427A7CC469825A8601870AF8E" action="add">
+  <allow_private_permission>0</allow_private_permission>
+  <auto_search>0</auto_search>
+  <default_page_size>30</default_page_size>
+  <description>One bulk create or edit of items with Excel: the target ItemType, the workbook that was exported, the workbook that was uploaded, and the result of the import.</description>
+  <enforce_discovery>1</enforce_discovery>
+  <hide_where_used>0</hide_where_used>
+  <implementation_type>table</implementation_type>
+  <instance_data>FRG_MASSCREATEEDIT</instance_data>
+  <is_dependent>0</is_dependent>
+  <is_relationship>0</is_relationship>
+  <is_versionable>0</is_versionable>
+  <label xml:lang="en">Mass Create &amp; Edit</label>
+  <label_plural xml:lang="en">Mass Create &amp; Edit</label_plural>
+  <large_icon>../images/ExportToExcel.svg</large_icon>
+  <open_icon>../images/ExportToExcel.svg</open_icon>
+  <revisions keyed_name="Default" type="Revision">7FE395DD8B9F4E1090756A34B733D75E</revisions>
+  <show_parameters_tab>1</show_parameters_tab>
+  <structure_view>tabs on</structure_view>
+  <unlock_on_logout>0</unlock_on_logout>
+  <use_src_access>0</use_src_access>
+  <name>FRG_MassCreateEdit</name>
+  <Relationships>
+   <Item type="ITPresentationConfiguration" id="0BD882D205809CA7D93B06935753E6C3" action="add">
+    <client>js</client>
+    <related_id keyed_name="FRG_MassCreateEdit_PresentationConfiguration" type="PresentationConfiguration">B841B89892A087AECD27577B6CE196E2</related_id>
+    <sort_order>128</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="ItemType" name="FRG_MassCreateEdit">406C27A427A7CC469825A8601870AF8E</source_id>
+   </Item>
+   <Item type="Property" id="B3E4F06A6F1EA7363FF2E87DEFE56EB7" action="add">
+    <column_alignment>left</column_alignment>
+    <data_source keyed_name="FRG_MassCreateEdit" type="ItemType" name="FRG_MassCreateEdit">406C27A427A7CC469825A8601870AF8E</data_source>
+    <data_type>item</data_type>
+    <is_discoverable>1</is_discoverable>
+    <is_federated>0</is_federated>
+    <is_hidden>1</is_hidden>
+    <is_hidden2>1</is_hidden2>
+    <is_indexed>0</is_indexed>
+    <is_keyed>0</is_keyed>
+    <is_multi_valued>0</is_multi_valued>
+    <is_required>0</is_required>
+    <item_behavior>float</item_behavior>
+    <label xml:lang="en">Copied From</label>
+    <range_inclusive>0</range_inclusive>
+    <readonly>0</readonly>
+    <sort_order>3270</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="ItemType" name="FRG_MassCreateEdit">406C27A427A7CC469825A8601870AF8E</source_id>
+    <track_history>0</track_history>
+    <name>copied_from</name>
+   </Item>
+   <Item type="Property" id="45F35B5D2DF5F23AAE789B6A6E3F9295" action="add">
+    <column_alignment>left</column_alignment>
+    <data_source keyed_name="File" type="ItemType" name="File">8052A558B9084D41B9F11805E464F443</data_source>
+    <data_type>item</data_type>
+    <is_discoverable>1</is_discoverable>
+    <is_federated>0</is_federated>
+    <is_hidden>1</is_hidden>
+    <is_hidden2>1</is_hidden2>
+    <is_indexed>0</is_indexed>
+    <is_keyed>0</is_keyed>
+    <is_multi_valued>0</is_multi_valued>
+    <is_required>0</is_required>
+    <item_behavior>float</item_behavior>
+    <label xml:lang="en">Generated Workbook</label>
+    <range_inclusive>0</range_inclusive>
+    <readonly>0</readonly>
+    <sort_order>3240</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="ItemType" name="FRG_MassCreateEdit">406C27A427A7CC469825A8601870AF8E</source_id>
+    <track_history>0</track_history>
+    <name>export_file</name>
+   </Item>
+   <Item type="Property" id="90443858116242A2A2BB9136282B9CD2" action="add">
+    <column_alignment>left</column_alignment>
+    <data_type>text</data_type>
+    <is_discoverable>1</is_discoverable>
+    <is_federated>0</is_federated>
+    <is_hidden>1</is_hidden>
+    <is_hidden2>1</is_hidden2>
+    <is_indexed>0</is_indexed>
+    <is_keyed>0</is_keyed>
+    <is_multi_valued>0</is_multi_valued>
+    <is_required>0</is_required>
+    <label xml:lang="en">Workbook Options</label>
+    <range_inclusive>0</range_inclusive>
+    <readonly>0</readonly>
+    <sort_order>3215</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="ItemType" name="FRG_MassCreateEdit">406C27A427A7CC469825A8601870AF8E</source_id>
+    <track_history>0</track_history>
+    <name>export_options</name>
+   </Item>
+   <Item type="Property" id="A76CC04962B74A4368357179A589F669" action="add">
+    <column_alignment>left</column_alignment>
+    <column_width>140</column_width>
+    <data_type>date</data_type>
+    <is_discoverable>1</is_discoverable>
+    <is_federated>0</is_federated>
+    <is_hidden>0</is_hidden>
+    <is_hidden2>0</is_hidden2>
+    <is_indexed>0</is_indexed>
+    <is_keyed>0</is_keyed>
+    <is_multi_valued>0</is_multi_valued>
+    <is_required>0</is_required>
+    <label xml:lang="en">Generated On</label>
+    <pattern>short_date_time</pattern>
+    <range_inclusive>0</range_inclusive>
+    <readonly>0</readonly>
+    <sort_order>90</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="ItemType" name="FRG_MassCreateEdit">406C27A427A7CC469825A8601870AF8E</source_id>
+    <track_history>0</track_history>
+    <name>exported_on</name>
+   </Item>
+   <Item type="Property" id="981D183343F500195F6FAFDE2C29B750" action="add">
+    <column_alignment>left</column_alignment>
+    <column_width>110</column_width>
+    <data_source keyed_name="FRG_MassCreateEdit_Number">3B30CF32AF6DCEF1DE7414A950CDEB55</data_source>
+    <data_type>sequence</data_type>
+    <is_discoverable>1</is_discoverable>
+    <is_federated>0</is_federated>
+    <is_hidden>0</is_hidden>
+    <is_hidden2>0</is_hidden2>
+    <is_indexed>0</is_indexed>
+    <is_keyed>0</is_keyed>
+    <is_multi_valued>0</is_multi_valued>
+    <is_required>0</is_required>
+    <keyed_name_order>1</keyed_name_order>
+    <label xml:lang="en">Number</label>
+    <range_inclusive>0</range_inclusive>
+    <readonly>0</readonly>
+    <sort_order>10</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="ItemType" name="FRG_MassCreateEdit">406C27A427A7CC469825A8601870AF8E</source_id>
+    <track_history>0</track_history>
+    <name>item_number</name>
+   </Item>
+   <Item type="Property" id="9723597EA84F0D251301CA9F3D52B1BE" action="add">
+    <column_alignment>left</column_alignment>
+    <data_type>text</data_type>
+    <is_discoverable>1</is_discoverable>
+    <is_federated>0</is_federated>
+    <is_hidden>1</is_hidden>
+    <is_hidden2>1</is_hidden2>
+    <is_indexed>0</is_indexed>
+    <is_keyed>0</is_keyed>
+    <is_multi_valued>0</is_multi_valued>
+    <is_required>0</is_required>
+    <label xml:lang="en">Key Columns</label>
+    <range_inclusive>0</range_inclusive>
+    <readonly>0</readonly>
+    <sort_order>3200</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="ItemType" name="FRG_MassCreateEdit">406C27A427A7CC469825A8601870AF8E</source_id>
+    <track_history>0</track_history>
+    <name>key_properties</name>
+   </Item>
+   <Item type="Property" id="A257CA28032CC9D3DD82064D348939FA" action="add">
+    <column_alignment>left</column_alignment>
+    <data_type>string</data_type>
+    <is_discoverable>1</is_discoverable>
+    <is_federated>0</is_federated>
+    <is_hidden>1</is_hidden>
+    <is_hidden2>1</is_hidden2>
+    <is_indexed>0</is_indexed>
+    <is_keyed>0</is_keyed>
+    <is_multi_valued>0</is_multi_valued>
+    <is_required>0</is_required>
+    <label xml:lang="en">Metadata Hash</label>
+    <range_inclusive>0</range_inclusive>
+    <readonly>0</readonly>
+    <sort_order>3230</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="ItemType" name="FRG_MassCreateEdit">406C27A427A7CC469825A8601870AF8E</source_id>
+    <stored_length>128</stored_length>
+    <track_history>0</track_history>
+    <name>metadata_hash</name>
+   </Item>
+   <Item type="Property" id="4F368D294F3275C08213C5CADE0A183F" action="add">
+    <column_alignment>left</column_alignment>
+    <data_type>text</data_type>
+    <is_discoverable>1</is_discoverable>
+    <is_federated>0</is_federated>
+    <is_hidden>1</is_hidden>
+    <is_hidden2>1</is_hidden2>
+    <is_indexed>0</is_indexed>
+    <is_keyed>0</is_keyed>
+    <is_multi_valued>0</is_multi_valued>
+    <is_required>0</is_required>
+    <label xml:lang="en">Files Stored for the Import</label>
+    <range_inclusive>0</range_inclusive>
+    <readonly>0</readonly>
+    <sort_order>3250</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="ItemType" name="FRG_MassCreateEdit">406C27A427A7CC469825A8601870AF8E</source_id>
+    <track_history>0</track_history>
+    <name>staged_files</name>
+   </Item>
+   <Item type="Property" id="282401A0B5F23061ADE4499C239A967F" action="add">
+    <column_alignment>left</column_alignment>
+    <data_type>text</data_type>
+    <is_discoverable>1</is_discoverable>
+    <is_federated>0</is_federated>
+    <is_hidden>1</is_hidden>
+    <is_hidden2>1</is_hidden2>
+    <is_indexed>0</is_indexed>
+    <is_keyed>0</is_keyed>
+    <is_multi_valued>0</is_multi_valued>
+    <is_required>0</is_required>
+    <label xml:lang="en">Items to Pre-fill</label>
+    <range_inclusive>0</range_inclusive>
+    <readonly>0</readonly>
+    <sort_order>3210</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="ItemType" name="FRG_MassCreateEdit">406C27A427A7CC469825A8601870AF8E</source_id>
+    <track_history>0</track_history>
+    <name>prefill_idlist</name>
+   </Item>
+   <Item type="Property" id="B0DAE539FC354E43BC00C20F9B27DC58" action="add">
+    <column_alignment>left</column_alignment>
+    <data_type>text</data_type>
+    <is_discoverable>1</is_discoverable>
+    <is_federated>0</is_federated>
+    <is_hidden>1</is_hidden>
+    <is_hidden2>1</is_hidden2>
+    <is_indexed>0</is_indexed>
+    <is_keyed>0</is_keyed>
+    <is_multi_valued>0</is_multi_valued>
+    <is_required>0</is_required>
+    <label xml:lang="en">Targets</label>
+    <range_inclusive>0</range_inclusive>
+    <readonly>0</readonly>
+    <sort_order>3220</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="ItemType" name="FRG_MassCreateEdit">406C27A427A7CC469825A8601870AF8E</source_id>
+    <track_history>0</track_history>
+    <name>targets</name>
+   </Item>
+   <Item type="Property" id="BF9B3BB452B086AC604390785C20D22F" action="add">
+    <column_alignment>left</column_alignment>
+    <column_width>85</column_width>
+    <data_type>integer</data_type>
+    <is_discoverable>1</is_discoverable>
+    <is_federated>0</is_federated>
+    <is_hidden>0</is_hidden>
+    <is_hidden2>0</is_hidden2>
+    <is_indexed>0</is_indexed>
+    <is_keyed>0</is_keyed>
+    <is_multi_valued>0</is_multi_valued>
+    <is_required>0</is_required>
+    <label xml:lang="en">Created</label>
+    <range_inclusive>0</range_inclusive>
+    <readonly>0</readonly>
+    <sort_order>50</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="ItemType" name="FRG_MassCreateEdit">406C27A427A7CC469825A8601870AF8E</source_id>
+    <track_history>0</track_history>
+    <name>qty_created</name>
+   </Item>
+   <Item type="Property" id="782CAFE733809B76D00F2EA1460F7BE9" action="add">
+    <column_alignment>left</column_alignment>
+    <column_width>85</column_width>
+    <data_type>integer</data_type>
+    <is_discoverable>1</is_discoverable>
+    <is_federated>0</is_federated>
+    <is_hidden>0</is_hidden>
+    <is_hidden2>0</is_hidden2>
+    <is_indexed>0</is_indexed>
+    <is_keyed>0</is_keyed>
+    <is_multi_valued>0</is_multi_valued>
+    <is_required>0</is_required>
+    <label xml:lang="en">Failed</label>
+    <range_inclusive>0</range_inclusive>
+    <readonly>0</readonly>
+    <sort_order>80</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="ItemType" name="FRG_MassCreateEdit">406C27A427A7CC469825A8601870AF8E</source_id>
+    <track_history>0</track_history>
+    <name>qty_failed</name>
+   </Item>
+   <Item type="Property" id="24470264125272EC0554197EF55D7A24" action="add">
+    <column_alignment>left</column_alignment>
+    <column_width>85</column_width>
+    <data_type>integer</data_type>
+    <is_discoverable>1</is_discoverable>
+    <is_federated>0</is_federated>
+    <is_hidden>0</is_hidden>
+    <is_hidden2>0</is_hidden2>
+    <is_indexed>0</is_indexed>
+    <is_keyed>0</is_keyed>
+    <is_multi_valued>0</is_multi_valued>
+    <is_required>0</is_required>
+    <label xml:lang="en">Skipped</label>
+    <range_inclusive>0</range_inclusive>
+    <readonly>0</readonly>
+    <sort_order>75</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="ItemType" name="FRG_MassCreateEdit">406C27A427A7CC469825A8601870AF8E</source_id>
+    <track_history>0</track_history>
+    <name>qty_skipped</name>
+   </Item>
+   <Item type="Property" id="BD23D9BBF5DAD606F52CEBBAC23E1A24" action="add">
+    <column_alignment>left</column_alignment>
+    <column_width>85</column_width>
+    <data_type>integer</data_type>
+    <is_discoverable>1</is_discoverable>
+    <is_federated>0</is_federated>
+    <is_hidden>0</is_hidden>
+    <is_hidden2>0</is_hidden2>
+    <is_indexed>0</is_indexed>
+    <is_keyed>0</is_keyed>
+    <is_multi_valued>0</is_multi_valued>
+    <is_required>0</is_required>
+    <label xml:lang="en">Total Rows</label>
+    <range_inclusive>0</range_inclusive>
+    <readonly>0</readonly>
+    <sort_order>40</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="ItemType" name="FRG_MassCreateEdit">406C27A427A7CC469825A8601870AF8E</source_id>
+    <track_history>0</track_history>
+    <name>qty_total</name>
+   </Item>
+   <Item type="Property" id="EAF85FB182874D9F1299B14964CC0D8C" action="add">
+    <column_alignment>left</column_alignment>
+    <column_width>85</column_width>
+    <data_type>integer</data_type>
+    <is_discoverable>1</is_discoverable>
+    <is_federated>0</is_federated>
+    <is_hidden>0</is_hidden>
+    <is_hidden2>0</is_hidden2>
+    <is_indexed>0</is_indexed>
+    <is_keyed>0</is_keyed>
+    <is_multi_valued>0</is_multi_valued>
+    <is_required>0</is_required>
+    <label xml:lang="en">Unchanged</label>
+    <range_inclusive>0</range_inclusive>
+    <readonly>0</readonly>
+    <sort_order>70</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="ItemType" name="FRG_MassCreateEdit">406C27A427A7CC469825A8601870AF8E</source_id>
+    <track_history>0</track_history>
+    <name>qty_unchanged</name>
+   </Item>
+   <Item type="Property" id="4C648645353E137D5B224DAF83029CE1" action="add">
+    <column_alignment>left</column_alignment>
+    <column_width>85</column_width>
+    <data_type>integer</data_type>
+    <is_discoverable>1</is_discoverable>
+    <is_federated>0</is_federated>
+    <is_hidden>0</is_hidden>
+    <is_hidden2>0</is_hidden2>
+    <is_indexed>0</is_indexed>
+    <is_keyed>0</is_keyed>
+    <is_multi_valued>0</is_multi_valued>
+    <is_required>0</is_required>
+    <label xml:lang="en">Updated</label>
+    <range_inclusive>0</range_inclusive>
+    <readonly>0</readonly>
+    <sort_order>60</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="ItemType" name="FRG_MassCreateEdit">406C27A427A7CC469825A8601870AF8E</source_id>
+    <track_history>0</track_history>
+    <name>qty_updated</name>
+   </Item>
+   <Item type="Property" id="7B94C08292ACCDAB822693103B8A8362" action="add">
+    <column_alignment>left</column_alignment>
+    <data_source keyed_name="File" type="ItemType" name="File">8052A558B9084D41B9F11805E464F443</data_source>
+    <data_type>item</data_type>
+    <is_discoverable>1</is_discoverable>
+    <is_federated>0</is_federated>
+    <is_hidden>1</is_hidden>
+    <is_hidden2>1</is_hidden2>
+    <is_indexed>0</is_indexed>
+    <is_keyed>0</is_keyed>
+    <is_multi_valued>0</is_multi_valued>
+    <is_required>0</is_required>
+    <item_behavior>float</item_behavior>
+    <label xml:lang="en">Results File</label>
+    <range_inclusive>0</range_inclusive>
+    <readonly>0</readonly>
+    <sort_order>3260</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="ItemType" name="FRG_MassCreateEdit">406C27A427A7CC469825A8601870AF8E</source_id>
+    <track_history>0</track_history>
+    <name>results_file</name>
+   </Item>
+   <Item type="Property" id="81266D872A2CAEBDBEE56FE3CBB6572A" action="add">
+    <column_alignment>left</column_alignment>
+    <column_width>150</column_width>
+    <data_source keyed_name="ItemType" type="ItemType" name="ItemType">450906E86E304F55A34B3C0D65C097EA</data_source>
+    <data_type>item</data_type>
+    <is_discoverable>1</is_discoverable>
+    <is_federated>0</is_federated>
+    <is_hidden>0</is_hidden>
+    <is_hidden2>0</is_hidden2>
+    <is_indexed>0</is_indexed>
+    <is_keyed>0</is_keyed>
+    <is_multi_valued>0</is_multi_valued>
+    <is_required>1</is_required>
+    <item_behavior>float</item_behavior>
+    <label xml:lang="en">Target ItemType</label>
+    <range_inclusive>0</range_inclusive>
+    <readonly>0</readonly>
+    <sort_order>20</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="ItemType" name="FRG_MassCreateEdit">406C27A427A7CC469825A8601870AF8E</source_id>
+    <track_history>0</track_history>
+    <name>target_itemtype</name>
+   </Item>
+   <Item type="Property" id="98E869D3D7D90A21F13232DCEEFB3E58" action="add">
+    <column_alignment>left</column_alignment>
+    <data_source keyed_name="File" type="ItemType" name="File">8052A558B9084D41B9F11805E464F443</data_source>
+    <data_type>item</data_type>
+    <is_discoverable>1</is_discoverable>
+    <is_federated>0</is_federated>
+    <is_hidden>1</is_hidden>
+    <is_hidden2>1</is_hidden2>
+    <is_indexed>0</is_indexed>
+    <is_keyed>0</is_keyed>
+    <is_multi_valued>0</is_multi_valued>
+    <is_required>0</is_required>
+    <item_behavior>float</item_behavior>
+    <label xml:lang="en">Uploaded Workbook</label>
+    <range_inclusive>0</range_inclusive>
+    <readonly>0</readonly>
+    <sort_order>3250</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="ItemType" name="FRG_MassCreateEdit">406C27A427A7CC469825A8601870AF8E</source_id>
+    <track_history>0</track_history>
+    <name>upload_file</name>
+   </Item>
+   <Item type="Property" id="BEFE62C1D6339D62D77652EE9AFA4EF3" action="add">
+    <column_alignment>left</column_alignment>
+    <data_type>string</data_type>
+    <is_discoverable>1</is_discoverable>
+    <is_federated>0</is_federated>
+    <is_hidden>1</is_hidden>
+    <is_hidden2>1</is_hidden2>
+    <is_indexed>0</is_indexed>
+    <is_keyed>0</is_keyed>
+    <is_multi_valued>0</is_multi_valued>
+    <is_required>0</is_required>
+    <label xml:lang="en">Workbook Token</label>
+    <range_inclusive>0</range_inclusive>
+    <readonly>0</readonly>
+    <sort_order>3220</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="ItemType" name="FRG_MassCreateEdit">406C27A427A7CC469825A8601870AF8E</source_id>
+    <stored_length>128</stored_length>
+    <track_history>0</track_history>
+    <name>workbook_token</name>
+   </Item>
+   <Item type="View" id="880CA5A6867469E9C5ED5BFA34C9D584" action="add">
+    <client>js</client>
+    <related_id keyed_name="FRG_MassCreateEdit" type="Form">CC4AA4A4FEBC7DE08C188D84209C6421</related_id>
+    <role keyed_name="World" type="Identity">
+     <Item type="Identity" action="get" select="id">
+      <name>World</name>
+     </Item>
+    </role>
+    <show_ssvc>0</show_ssvc>
+    <sort_order>128</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="ItemType" name="FRG_MassCreateEdit">406C27A427A7CC469825A8601870AF8E</source_id>
+    <type>default</type>
+   </Item>
+   <Item type="Server Event" id="FFE81EDF56F74CC2936545F6F7F231B8" action="add">
+    <event_version>version_1</event_version>
+    <is_required>0</is_required>
+    <related_id keyed_name="FRG_MCE_Guard" type="Method">
+     <Item type="Method" action="get" select="id">
+      <name>FRG_MCE_Guard</name>
+     </Item>
+    </related_id>
+    <server_event>onBeforeAdd</server_event>
+    <sort_order>128</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="ItemType" name="FRG_MassCreateEdit">406C27A427A7CC469825A8601870AF8E</source_id>
+   </Item>
+   <Item type="Server Event" id="8AB9D5AA4E7C4B6C8A63D9EBD4D72B74" action="add">
+    <event_version>version_1</event_version>
+    <is_required>0</is_required>
+    <related_id keyed_name="FRG_MCE_Guard" type="Method">
+     <Item type="Method" action="get" select="id">
+      <name>FRG_MCE_Guard</name>
+     </Item>
+    </related_id>
+    <server_event>onBeforeDelete</server_event>
+    <sort_order>384</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="ItemType" name="FRG_MassCreateEdit">406C27A427A7CC469825A8601870AF8E</source_id>
+   </Item>
+   <Item type="Server Event" id="D416E501B3304EF0BEAE32F1104D40CF" action="add">
+    <event_version>version_1</event_version>
+    <is_required>0</is_required>
+    <related_id keyed_name="FRG_MCE_Guard" type="Method">
+     <Item type="Method" action="get" select="id">
+      <name>FRG_MCE_Guard</name>
+     </Item>
+    </related_id>
+    <server_event>onBeforeUpdate</server_event>
+    <sort_order>256</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="ItemType" name="FRG_MassCreateEdit">406C27A427A7CC469825A8601870AF8E</source_id>
+   </Item>
+   <Item type="ItemType Life Cycle" id="4E99CC30A50E7E894F9E809732135D15" action="add">
+    <related_id keyed_name="FRG_MassCreateEdit" type="Life Cycle Map">3155679E77B0ECA640A9C25534D270B2</related_id>
+    <sort_order>128</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="ItemType" name="FRG_MassCreateEdit">406C27A427A7CC469825A8601870AF8E</source_id>
+   </Item>
+   <Item type="Can Add" id="F8C65BAF99FEFD7596D2586232153DCA" action="add">
+    <can_add>1</can_add>
+    <related_id keyed_name="FRG Mass Create &amp; Edit Users" type="Identity">0968F294F9A0FABFE9C38539EBA99EFE</related_id>
+    <sort_order>128</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="ItemType" name="FRG_MassCreateEdit">406C27A427A7CC469825A8601870AF8E</source_id>
+   </Item>
+   <Item type="Can Add" id="552E6145CF34D4A6AEF817D8D50327BE" action="add">
+    <can_add>1</can_add>
+    <related_id keyed_name="Administrators" type="Identity">2618D6F5A90949BAA7E920D1B04C7EE1</related_id>
+    <sort_order>256</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="ItemType" name="FRG_MassCreateEdit">406C27A427A7CC469825A8601870AF8E</source_id>
+   </Item>
+   <Item type="Allowed Permission" id="9F76AC3A372A9E9A1EF2259A0AB6FFA7" action="add">
+    <is_default>1</is_default>
+    <related_id keyed_name="FRG_MassCreateEdit" type="Permission">93080DAE246D537C8161C884C7A5F89C</related_id>
+    <sort_order>128</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="ItemType" name="FRG_MassCreateEdit">406C27A427A7CC469825A8601870AF8E</source_id>
+   </Item>
+  </Relationships>
+ </Item>
+ <Item type="ItemType" id="406C27A427A7CC469825A8601870AF8E" action="edit">
+  <Relationships>
+   <Item type="Property" action="edit" where="source_id='406C27A427A7CC469825A8601870AF8E' and name='created_by_id'">
+    <column_alignment>left</column_alignment>
+    <column_width>140</column_width>
+    <data_source keyed_name="User" type="ItemType" name="User">45E899CD2859442982EB22BB2DF683E5</data_source>
+    <data_type>item</data_type>
+    <is_discoverable>1</is_discoverable>
+    <is_federated>0</is_federated>
+    <is_hidden>0</is_hidden>
+    <is_hidden2>0</is_hidden2>
+    <is_indexed>0</is_indexed>
+    <is_keyed>0</is_keyed>
+    <is_multi_valued>0</is_multi_valued>
+    <is_required>1</is_required>
+    <item_behavior>float</item_behavior>
+    <label xml:lang="en">Created By</label>
+    <range_inclusive>0</range_inclusive>
+    <readonly>1</readonly>
+    <sort_order>100</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="ItemType" name="FRG_MassCreateEdit">406C27A427A7CC469825A8601870AF8E</source_id>
+    <track_history>0</track_history>
+    <name>created_by_id</name>
+   </Item>
+   <Item type="Property" action="edit" where="source_id='406C27A427A7CC469825A8601870AF8E' and name='created_on'">
+    <column_alignment>left</column_alignment>
+    <column_width>140</column_width>
+    <data_type>date</data_type>
+    <is_discoverable>1</is_discoverable>
+    <is_federated>0</is_federated>
+    <is_hidden>0</is_hidden>
+    <is_hidden2>0</is_hidden2>
+    <is_indexed>0</is_indexed>
+    <is_keyed>0</is_keyed>
+    <is_multi_valued>0</is_multi_valued>
+    <is_required>1</is_required>
+    <label xml:lang="en">Created On</label>
+    <pattern>short_date_time</pattern>
+    <range_inclusive>0</range_inclusive>
+    <readonly>1</readonly>
+    <sort_order>110</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="ItemType" name="FRG_MassCreateEdit">406C27A427A7CC469825A8601870AF8E</source_id>
+    <track_history>0</track_history>
+    <name>created_on</name>
+   </Item>
+   <Item type="Property" action="edit" where="source_id='406C27A427A7CC469825A8601870AF8E' and name='state'">
+    <column_alignment>left</column_alignment>
+    <column_width>100</column_width>
+    <data_type>string</data_type>
+    <is_discoverable>1</is_discoverable>
+    <is_federated>0</is_federated>
+    <is_hidden>0</is_hidden>
+    <is_hidden2>0</is_hidden2>
+    <is_indexed>0</is_indexed>
+    <is_keyed>0</is_keyed>
+    <is_multi_valued>0</is_multi_valued>
+    <is_required>0</is_required>
+    <label xml:lang="en">State</label>
+    <range_inclusive>0</range_inclusive>
+    <readonly>1</readonly>
+    <sort_order>30</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit" type="ItemType" name="FRG_MassCreateEdit">406C27A427A7CC469825A8601870AF8E</source_id>
+    <stored_length>32</stored_length>
+    <track_history>0</track_history>
+    <name>state</name>
+   </Item>
+  </Relationships>
+ </Item>
+</AML>

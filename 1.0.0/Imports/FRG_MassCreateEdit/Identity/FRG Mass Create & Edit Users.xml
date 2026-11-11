@@ -1,0 +1,7 @@
+﻿<AML>
+ <Item type="Identity" id="0968F294F9A0FABFE9C38539EBA99EFE" action="add">
+  <description>Can create Mass Create &amp; Edit jobs and work on their own.</description>
+  <is_alias>0</is_alias>
+  <name>FRG Mass Create &amp; Edit Users</name>
+ </Item>
+</AML>

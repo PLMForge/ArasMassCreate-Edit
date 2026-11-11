@@ -1,0 +1,201 @@
+// Method:  FRG_MCE_Guard
+// Type:    server Method, C#, run as a server event:
+//            FRG_MassCreateEdit         onBeforeAdd, onBeforeUpdate, onBeforeDelete
+//            FRG_MassCreateEdit_Sheet   onBeforeAdd, onBeforeUpdate, onBeforeDelete
+//            FRG_MassCreateEdit_Record  onBeforeAdd, onBeforeUpdate, onBeforeDelete
+// Purpose: keeps what the steps of a Mass Create & Edit job record about it from being
+//          changed by hand. The steps are the Methods FRG_MCE_ExportWorkbook and
+//          FRG_MCE_ImportWorkbook. While they write, they take on the identity
+//          "FRG Mass Create & Edit Steps", which has no members; whatever is written while
+//          that identity is in the caller's identity list passes.
+//
+// Without it:
+//   - a job's own properties may not be set or changed: workbook_token, key_properties,
+//     metadata_hash, export_options, export_file, exported_on, upload_file, results_file,
+//     the counts (qty_*), staged_files (the Files the import stored), prefill_idlist and
+//     targets (the target ItemTypes with their selected items). A new job may bring
+//     prefill_idlist and targets (the Bulk Edit entries fill them in), and a Draft job may
+//     change them (the job's Form lets the user add and remove targets and selected items
+//     until the workbook is generated; generating moves the job out of Draft). A save that sends these properties with the values
+//     the job has already passes, as a save from the job's Form does. export_options is
+//     written by FRG_MCE_ExportWorkbook (step begin), which the Form passes the options to.
+//   - Sheet rows and records may not be added, changed or deleted. Their Permission
+//     (FRG_MassCreateEdit_Rows) and Can Add rows already allow that to the steps'
+//     identity only; this guard refuses it with a message that says why.
+//   - Deleting a job deletes its Sheet rows and records first, with the steps' identity,
+//     once it is clear that the caller may delete the job.
+//
+// The job's state is guarded by its life cycle: the steps' identity is the role of every
+// transition, so a job cannot be promoted by hand.
+//
+// Permissions do the rest. Once a job is Generated its Permission (FRG_MassCreateEdit_Generated,
+// then FRG_MassCreateEdit_Imported) lets only the steps' identity and administrators update
+// it, so a request that skips server events changes nothing either. A Draft job is open to
+// its creator and owner; whatever they set there by hand, generating the workbook overwrites.
+
+Innovator inn = this.getInnovator();
+
+const string StepsIdentityId = "B56E4D1B3F4DDC99AECEC5AFB250BF63";
+const string JobType = "FRG_MassCreateEdit";
+const string NeutralDateFormat = "yyyy-MM-ddTHH:mm:ss";
+
+string[] jobProperties = new string[]
+{
+	"workbook_token", "key_properties", "metadata_hash", "export_options", "export_file", "exported_on", "upload_file", "results_file",
+	"qty_total", "qty_created", "qty_updated", "qty_unchanged", "qty_skipped", "qty_failed", "prefill_idlist", "targets", "staged_files"
+};
+// Open on a new job and on a Draft job.
+string[] openOnAdd = new string[] { "prefill_idlist", "targets" };
+string[] itemProperties = new string[] { "export_file", "upload_file", "results_file" };
+
+Aras.Server.Security.Identity steps = Aras.Server.Security.Identity.GetById(StepsIdentityId);
+if (("," + Aras.Server.Security.Permissions.Current.IdentitiesList + ",").Contains("'" + steps.Id + "'"))
+{
+	return this;
+}
+
+string type = this.getType();
+string action = (this.getAction() ?? "").ToLowerInvariant();
+bool deleting = action == "delete" || action == "purge";
+
+if (type != JobType)
+{
+	return inn.newError("Sheets and records of a Mass Create & Edit job are written by the job's steps only. They can't be " +
+		(deleting ? "deleted" : action == "add" ? "added" : "changed") + " by hand.");
+}
+
+string jobId = this.getID() ?? "";
+if (deleting)
+{
+	return DeleteRows(jobId);
+}
+
+// A job that exists is being changed; otherwise it is being added.
+Item stored = jobId.Length == 0 ? null : inn.applyAML(
+	"<AML><Item type=\"" + JobType + "\" action=\"get\" id=\"" + Xml(jobId) + "\" select=\"state," + string.Join(",", jobProperties) + "\"/></AML>");
+bool exists = stored != null && !stored.isError() && stored.getItemCount() == 1;
+bool draft = exists && stored.getProperty("state", "") == "Draft";
+List<string> changed = new List<string>();
+foreach (string name in jobProperties)
+{
+	XmlElement sent = (XmlElement)this.node.SelectSingleNode(name);
+	if (sent == null)
+	{
+		continue;
+	}
+	string value = Sent(sent);
+	if (!exists)
+	{
+		if (value.Length > 0 && !openOnAdd.Contains(name))
+		{
+			changed.Add(name);
+		}
+		continue;
+	}
+	if (draft && openOnAdd.Contains(name))
+	{
+		continue;
+	}
+	XmlElement now = (XmlElement)stored.node.SelectSingleNode(name);
+	if (!Same(name, value, now == null ? "" : Sent(now)))
+	{
+		changed.Add(name);
+	}
+}
+if (changed.Count > 0)
+{
+	return inn.newError("These properties of a Mass Create & Edit job are set by the job's steps only and can't be " +
+		(exists ? "changed" : "set") + " by hand: " + string.Join(", ", changed) + ".");
+}
+return this;
+
+// The value an AML property element carries: its text, or the id of a nested item.
+string Sent(XmlElement element)
+{
+	if (element.GetAttribute("is_null") == "1")
+	{
+		return "";
+	}
+	XmlElement nested = element["Item"];
+	return (nested == null ? element.InnerText : nested.GetAttribute("id")).Trim();
+}
+
+// True when a value sent is the value the job has.
+bool Same(string name, string sent, string stored)
+{
+	if (sent == stored)
+	{
+		return true;
+	}
+	if (itemProperties.Contains(name))
+	{
+		return string.Equals(sent, stored, StringComparison.OrdinalIgnoreCase);
+	}
+	if (name.StartsWith("qty_"))
+	{
+		decimal a;
+		decimal b;
+		return decimal.TryParse(sent, NumberStyles.Float, CultureInfo.InvariantCulture, out a) &&
+			decimal.TryParse(stored, NumberStyles.Float, CultureInfo.InvariantCulture, out b) && a == b;
+	}
+	if (name == "exported_on")
+	{
+		DateTime a;
+		DateTime b;
+		return DateTime.TryParse(sent, CultureInfo.InvariantCulture, DateTimeStyles.None, out a) &&
+			DateTime.TryParse(stored, CultureInfo.InvariantCulture, DateTimeStyles.None, out b) &&
+			Math.Abs((a - b).TotalSeconds) < 1;
+	}
+	return sent.Replace("\r\n", "\n") == stored.Replace("\r\n", "\n");
+}
+
+// Deletes the Sheet rows and records of a job that is being deleted, when the caller may
+// delete the job: they are the job's own, and only its steps may delete them otherwise.
+Item DeleteRows(string id)
+{
+	Item permission = inn.applyAML(
+		"<AML><Item type=\"" + JobType + "\" action=\"getPermissions\" access_type=\"can_delete\" idlist=\"" + Xml(id) + "\"/></AML>");
+	XmlNode canDelete = permission.isError() ? null : permission.dom.SelectSingleNode("//Result/Item/can_delete");
+	if (canDelete == null || canDelete.InnerText.Trim() != "1")
+	{
+		// The delete itself refuses the caller, with the server's own message.
+		return this;
+	}
+	bool granted = Aras.Server.Security.Permissions.GrantIdentity(steps);
+	try
+	{
+		foreach (string rowType in new string[] { "FRG_MassCreateEdit_Sheet", "FRG_MassCreateEdit_Record" })
+		{
+			Item rows = inn.applyAML("<AML><Item type=\"" + rowType + "\" action=\"get\" select=\"id\"><source_id>" + Xml(id) + "</source_id></Item></AML>");
+			int count = rows.isError() ? 0 : rows.getItemCount();
+			// One delete per 500 rows, naming them in its idlist, so that a large job is deleted
+			// in a few requests, not one request per row.
+			for (int start = 0; start < count; start += 500)
+			{
+				List<string> ids = new List<string>();
+				for (int i = start; i < Math.Min(count, start + 500); i++)
+				{
+					ids.Add(rows.getItemByIndex(i).getID());
+				}
+				Item deleted = inn.applyAML("<AML><Item type=\"" + rowType + "\" action=\"delete\" idlist=\"" + string.Join(",", ids) + "\"/></AML>");
+				if (deleted.isError())
+				{
+					return deleted;
+				}
+			}
+		}
+	}
+	finally
+	{
+		if (granted)
+		{
+			Aras.Server.Security.Permissions.RevokeIdentity(steps);
+		}
+	}
+	return this;
+}
+
+string Xml(string value)
+{
+	return value.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;").Replace("'", "&apos;");
+}

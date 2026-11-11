@@ -1,0 +1,5 @@
+Mass Create & Edit for Aras Innovator - client files.
+
+This folder is installed by the Aras Update package FRG_MassCreateEdit.
+Change the files in the package and install it again; files edited here are
+overwritten by the next install.

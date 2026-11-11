@@ -1,0 +1,3663 @@
+// Method:  FRG_MCE_ValidateImport
+// Type:    server Method, C#
+// Purpose: checks an uploaded Mass Create & Edit workbook before anything is written.
+//          The browser reads the workbook and sends its rows; this Method checks every
+//          cell against the current definitions, finds the item each row stands for, and
+//          says for every row whether it will create an item, change one, change nothing,
+//          or cannot be imported. It writes nothing.
+//
+// Input (properties of the context item):
+//   job_id     id of the Mass Create & Edit job the workbook was generated for
+//   workbook   the workbook as JSON: what parseWorkbook of mce-workbook.js returns,
+//              { meta: { formatVersion, database, definitionHash, job: { id, token },
+//                        sheets: [ { sheetName, kind, itemType, relationshipType, columns[],
+//                                    keyColumns[], matchKeyColumns[] } ] },
+//                sheets: [ { sheetName, missing?, rows: [ { rowNumber, cells: { <column id>: value },
+//                                                            modifiedOn } ] } ] }
+//              A cell value is text, a number or true/false. A date is the text
+//              yyyy-MM-ddTHH:mm:ss, a blank cell is left out, and #CLEAR empties a value.
+//              The workbook may also be a slice of one: its meta with some of the rows of
+//              each sheet (every sheet is still listed, an empty one with no rows). Each row
+//              is then checked as in the whole workbook, with two differences: rows are
+//              compared with the other rows of the slice only (two rows with the same key in
+//              different slices are not found), and a relationship row finds its parent on
+//              the main sheet of the slice, or else in Aras. FRG_MCE_ImportWorkbook checks
+//              each batch this way before it writes it.
+//              A job with several targets has a main sheet for each, first, in the order of
+//              its targets, then the relationship sheets. Each relationship sheet belongs to the
+//              main sheet of its source ItemType, and its related key may name a row of the main
+//              sheet of its related ItemType when that is a target too. A job with one target
+//              has one main sheet.
+//   file_size  optional: the size of the .xlsx file in bytes, as the browser read it
+//   files      optional: the files the user picked with the workbook, as JSON
+//              [ { "path": "folder/a.pdf", "size": 1234, "md5": "<32 hexadecimal digits>" } ].
+//              path is the file name, or its path inside a picked folder. A file cell names
+//              a picked file by its name, or by the end of its path when two picked files
+//              have the same name. The bytes are not sent: the import stores the files in
+//              the vault, and FRG_MCE_ImportWorkbook links them after checking their MD5.
+//
+// Output: a result whose text is JSON
+//   { formatVersion, status, job, database, limits, definitionChanged, issues[], sheets[], totals, stats }
+//
+//   status   "validated": the rows were checked; see sheets and totals.
+//            "rejected":  the upload as a whole was refused; issues says why and sheets is empty.
+//            "failed":    the check itself broke off; issues holds one INTERNAL_ERROR.
+//   issues   what concerns the whole upload: { severity, code, message, sheet?, column? }
+//   sheets   one entry per sheet of the workbook, the main sheets first:
+//     { index, sheetName, kind, itemType, relationshipType, createOnly, keyColumns[], matchKeyColumns[],
+//       columns[]: { id, property, label, dataType, pattern, status },
+//       totals, rows[], parents[], parentSheet, relatedSheet }
+//     parentSheet, relatedSheet  relationship sheets: the index of the main sheet of the parents,
+//                    and of the main sheet whose rows can be the related items, or null.
+//     column status  "ok"; "unknown": the workbook has the column and the current template does
+//                    not, so its values are ignored; "typeChanged": the data type changed since the
+//                    export, so its values are refused; "added": new since the export.
+//   rows     one entry per row, in the order of the workbook:
+//     row          the row number in the Excel sheet
+//     action       "new", "update", "none" (nothing differs from Aras), "delete" (a row with the
+//                  delete marker, #DELETE, that matches an existing relationship row) or "error"
+//     digest       a fingerprint of what importing the row would do: its action, the item it
+//                  stands for, the values it writes and the values they replace, and on a
+//                  relationship sheet its parent and related item. Messages and display texts
+//                  are not part of it. Items are named by the id their generations share, and
+//                  a parent that is new by its row on its main sheet. The import checks each
+//                  row again and writes it only while its digest is the one the user reviewed.
+//                  32 hexadecimal digits; compare it as a whole.
+//     id, keyedName  the existing item the row stands for, when there is one
+//     issues       [ { column, severity: "error" | "warning", code, message } ]; column is null
+//                  when the issue concerns the row as a whole
+//     values       what an import writes, by column id, as stored values: a list value, the id
+//                  of a referenced item, a date as yyyy-MM-ddTHH:mm:ss, 1 or 0, and "" for a
+//                  value that is emptied. A new row has every filled cell; an update row has
+//                  only the cells that differ from Aras. Rows with action none or error have none.
+//     display      the text to show for a value where it is not the stored value: the label
+//                  of a list value, the keyed name of a referenced item
+//     old, oldDisplay  update rows: the current Aras value of each cell in values
+//     On a relationship sheet also:
+//     parent       { sheet, row, id, keyedName }: the main sheet of the parents (its index), the
+//                  row of the parent on it (null when the parent is not in the workbook) and the
+//                  existing parent item (null when it is new)
+//     related      { id, keyedName } of the related item the row names, or null. A related item
+//                  that a new row of a main sheet creates is { sheet, row, id: null, keyedName }:
+//                  sheet is the index of that main sheet, row that row's number and keyedName the
+//                  key the row names it by. The import writes that row first and points the
+//                  relationship row at it.
+//     and "related_id" appears in values and old when a matched row gets another related item.
+//     Its new value names the row when that item is one a main-sheet row creates: "row:<number>"
+//     for a row of the first sheet, "row:<sheet index>:<number>" for a row of another main sheet.
+//   Files. The stored value of a file cell, and the related_id of a row that gets another
+//   file, is "file:<MD5>:<file name>" for a picked file: the import stores the file and puts
+//   in the id of its File. The old value is the id of the current File. On a sheet whose
+//   related item is a File, related is { id, keyedName, file }: the current File and its
+//   name, or, when the row links a picked file, id null and file "file:<MD5>:<file name>".
+//   A file cell with the name of the file the item has, and no picked file of that name,
+//   keeps the file. A picked file with the same name and content is no change.
+//   parents  relationship sheets: per parent named on the sheet { row, id, keyedName, existing,
+//            untouched }: how many relationship rows the parent has in Aras now, and how many of
+//            them no row of the sheet matches. An existing row of that parent whose id is not the
+//            id of a row on the sheet is untouched by the import. A parent that no row of the
+//            sheet names is not listed: all its rows are untouched.
+//   totals   { rows, new, update, none, delete, error, errors, warnings }: rows per action, and the
+//            number of error and warning issues. Each sheet has its own; the top level adds
+//            them up and counts the upload issues too.
+//   stats    { elapsedMs, requests }: how long the check took and how many requests it made.
+//
+// The Method always answers with this JSON, also when it refuses the upload or fails. A row
+// with an error issue has action "error"; a warning never changes the action. Whether rows
+// without errors may be imported while others have errors is for the caller to decide.
+//
+// Issue codes. A code keeps its meaning; the message is text for the user and may change.
+//   The whole upload (status "rejected", or "failed" for the last one):
+//     BAD_REQUEST JOB_NOT_FOUND JOB_NOT_CREATOR JOB_STATE JOB_INCOMPLETE WORKBOOK_FORMAT
+//     DATABASE_MISMATCH WORKBOOK_OTHER_JOB WORKBOOK_OUTDATED CONFIG_MISSING ITEMTYPE_NOT_ALLOWED
+//     UPLOAD_TOO_LARGE TARGET_MISMATCH SHEETS_MISMATCH SHEET_MISSING TOO_MANY_ROWS
+//     SCHEMA_UNAVAILABLE KEY_MISMATCH KEY_CHANGED MATCH_KEY_INVALID MATCH_KEY_MISMATCH
+//     TOO_MANY_FILES FILES_TOO_LARGE INTERNAL_ERROR
+//   The whole upload, as a warning (status stays "validated"):
+//     DEFINITION_CHANGED COLUMN_UNKNOWN COLUMN_TYPE_CHANGED FILE_UNUSED
+//   A cell (error):
+//     VALUE_TYPE TOO_LONG PATTERN NOT_A_NUMBER NOT_AN_INTEGER OUT_OF_RANGE TOO_MANY_DECIMALS
+//     TOO_MANY_DIGITS NOT_A_DATE NOT_A_BOOLEAN NOT_IN_LIST LIST_AMBIGUOUS FILTER_MISMATCH
+//     NOT_A_COLOR CLASS_INVALID CLASS_NOT_APPLICABLE REF_NOT_FOUND REF_AMBIGUOUS
+//     CLEAR_NOT_ALLOWED REQUIRED KEY_BLANK COLUMN_TYPE_CHANGED RELATED_REQUIRED
+//     FILE_NOT_PICKED FILE_AMBIGUOUS FILE_TOO_LARGE FILE_TYPE_NOT_ALLOWED DELETE_INVALID
+//   A cell (warning): COLUMN_UNKNOWN
+//   A row (error):
+//     ROW_INVALID DUPLICATE_KEY KEY_AMBIGUOUS KEY_EXISTS_HIDDEN ITEM_NO_ACCESS LOCKED
+//     NO_UPDATE_PERMISSION NO_ADD_PERMISSION
+//   A row (warning): CHANGED_SINCE_EXPORT EXPORTED_ROW_IS_NEW CREATE_ONLY_DUPLICATE FILE_REPLACED_IN_PLACE
+//   A relationship row (error):
+//     PARENT_NOT_FOUND PARENT_HAS_ERROR PARENT_LOCKED PARENT_NO_UPDATE_PERMISSION
+//     RELATED_NOT_FOUND RELATED_HAS_ERROR MATCH_AMBIGUOUS DUPLICATE_MATCH_KEY
+//     UNIQUE_VIOLATION DELETE_NOT_FOUND
+//   A relationship row (warning): REPEATED_CHILD
+//
+// Everything is read with the caller's own permissions, so an item the caller may not
+// read does not exist for this check. There is one exception: a key of the main sheet
+// that matches no item the caller can see is looked up once more with the Super User
+// identity, which reads past every permission, asking for the id only. When an item has
+// the key, the row is an error (KEY_EXISTS_HIDDEN): creating it would fail on the Unique
+// properties anyway. Nothing else of that item is read, and nothing of it goes into the
+// result. Related items and parents on relationship sheets are not looked up this way.
+// The Method runs no SQL.
+
+Innovator inn = this.getInnovator();
+
+const int FormatVersion = 1;
+const string ClearToken = "#CLEAR";
+const string DeleteToken = "#DELETE";
+const string FileTokenPrefix = "file:";
+const string NeutralDateFormat = "yyyy-MM-ddTHH:mm:ss";
+const string SuperUserIdentityId = "6B14D33C4A7D41C188CCF2BC15BD01A3";
+const string KeySeparator = "\u001F";
+const string RelatedIdColumn = "related_id";
+const string PartBomRelationshipId = "159C6D88795B4A86864420863466F728";
+const string SequenceColumn = "sort_order";
+// How many keys one lookup request asks for, and how many ids one request lists.
+const int KeyChunk = 250;
+const int IdChunk = 500;
+const int MessageValueLength = 60;
+const int MaxJsonDepth = 16;
+
+System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
+int queryCount = 0;
+string userId = inn.getUserID();
+I18NSessionContext session = inn.getI18NSessionContext();
+
+Newtonsoft.Json.Linq.JArray uploadIssues = new Newtonsoft.Json.Linq.JArray();
+Newtonsoft.Json.Linq.JArray sheetResults = new Newtonsoft.Json.Linq.JArray();
+Newtonsoft.Json.Linq.JObject jobResult = null;
+Newtonsoft.Json.Linq.JObject limitsResult = null;
+bool definitionChanged = false;
+
+// Definitions, read once.
+Newtonsoft.Json.Linq.JObject schema = null;
+Dictionary<string, List<string[]>> listEntries = new Dictionary<string, List<string[]>>(StringComparer.Ordinal);
+Dictionary<string, List<XmlElement>> filterValues = new Dictionary<string, List<XmlElement>>(StringComparer.Ordinal);
+Dictionary<string, XmlElement> itemTypes = new Dictionary<string, XmlElement>(StringComparer.Ordinal);
+Dictionary<string, List<XmlElement>> canAddRows = new Dictionary<string, List<XmlElement>>(StringComparer.Ordinal);
+Dictionary<string, System.Text.RegularExpressions.Regex> patterns = new Dictionary<string, System.Text.RegularExpressions.Regex>(StringComparer.Ordinal);
+HashSet<string> userIdentities = new HashSet<string>(StringComparer.Ordinal);
+
+// Lookups, kept so that nothing is asked twice.
+Dictionary<string, Dictionary<string, List<XmlElement>>> referenceCache = new Dictionary<string, Dictionary<string, List<XmlElement>>>(StringComparer.Ordinal);
+Dictionary<string, bool> canUpdateCache = new Dictionary<string, bool>(StringComparer.Ordinal);
+Dictionary<string, string> configIdCache = new Dictionary<string, string>(StringComparer.Ordinal);
+
+// What the relationship sheets need to know about the main sheets, by the index of the main
+// sheet: one for each target of the job, first in the workbook.
+int mainCount = 1;
+Newtonsoft.Json.Linq.JObject[] mainSheetDefs = new Newtonsoft.Json.Linq.JObject[0];
+string[] mainSheetNames = new string[0];
+Dictionary<string, int>[] mainRowByKey = new Dictionary<string, int>[0];
+int[][] mainRowNumbers = new int[0][];
+bool[][] mainRowFailed = new bool[0][];
+XmlElement[][] mainRowItems = new XmlElement[0][];
+// The items an import of this job created from rows of the main sheets: config id to the name of
+// that row (see NewRowName). A related item that was a new row in the preview is named by that
+// row in the digest, also once an earlier batch has created it.
+Dictionary<string, string> createdMainRows = new Dictionary<string, string>(StringComparer.Ordinal);
+
+// The files the user picked with the workbook: { path, name, MD5 in upper case, size }, and
+// the ones a cell names. The Files cells of existing items point at, by id (null: not readable).
+List<string[]> pickedFiles = new List<string[]>();
+HashSet<int> usedPicked = new HashSet<int>();
+Dictionary<string, XmlElement> fileCache = new Dictionary<string, XmlElement>(StringComparer.Ordinal);
+long maxAttachmentBytes = 0;
+long maxAttachmentsBytes = 0;
+int maxAttachments = 0;
+HashSet<string> allowedExtensions = null;
+// Whether an edit of an item of a main ItemType gives it a new generation, by ItemType id. When
+// it does not, a file that is replaced or removed is gone from the current generation.
+Dictionary<string, bool> versionsOnEdit = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+
+try
+{
+	string status = Validate();
+	return inn.newResult(Finish(status));
+}
+catch (Exception ex)
+{
+	// Never an unhandled error: the caller always gets the same shape back.
+	uploadIssues = new Newtonsoft.Json.Linq.JArray();
+	sheetResults = new Newtonsoft.Json.Linq.JArray();
+	UploadIssue(true, "INTERNAL_ERROR", "The workbook could not be checked: " + ex.Message, null, null);
+	return inn.newResult(Finish("failed"));
+}
+
+// ---------------------------------------------------------------------------------
+// The upload as a whole
+// ---------------------------------------------------------------------------------
+
+string Validate()
+{
+	// The request.
+	string jobId = Input("job_id");
+	string workbookText = this.getProperty("workbook", "") ?? "";
+	if (!IsId(jobId))
+	{
+		return Reject("BAD_REQUEST", "The request names no job: 'job_id' must be the id of a Mass Create & Edit job.");
+	}
+	if (workbookText.Trim().Length == 0)
+	{
+		return Reject("BAD_REQUEST", "The request holds no workbook data.");
+	}
+	Newtonsoft.Json.Linq.JObject workbook;
+	try
+	{
+		workbook = ParseJson(workbookText) as Newtonsoft.Json.Linq.JObject;
+	}
+	catch (Exception)
+	{
+		workbook = null;
+	}
+	Newtonsoft.Json.Linq.JObject meta = workbook == null ? null : workbook["meta"] as Newtonsoft.Json.Linq.JObject;
+	Newtonsoft.Json.Linq.JArray metaSheets = meta == null ? null : meta["sheets"] as Newtonsoft.Json.Linq.JArray;
+	Newtonsoft.Json.Linq.JArray dataSheets = workbook == null ? null : workbook["sheets"] as Newtonsoft.Json.Linq.JArray;
+	if (metaSheets == null || dataSheets == null || metaSheets.Count == 0 || metaSheets.Count != dataSheets.Count ||
+		metaSheets.Any(s => !(s is Newtonsoft.Json.Linq.JObject)) || dataSheets.Any(s => !(s is Newtonsoft.Json.Linq.JObject)))
+	{
+		return Reject("BAD_REQUEST", "The workbook data could not be read. Upload the workbook again.");
+	}
+	if (!ReadPickedFiles(this.getProperty("files", "") ?? ""))
+	{
+		return Reject("BAD_REQUEST", "The list of picked files could not be read. Upload the workbook and pick the files again.");
+	}
+
+	// The job. A job the caller may not read does not exist for the caller.
+	List<XmlElement> jobs = TryQuery(
+		"<Item type=\"FRG_MassCreateEdit\" action=\"get\" id=\"" + jobId + "\" " +
+		"select=\"item_number,state,created_by_id,target_itemtype,targets,key_properties,metadata_hash,workbook_token\"/>");
+	if (jobs == null || jobs.Count != 1)
+	{
+		return Reject("JOB_NOT_FOUND", "The Mass Create & Edit job was not found, or you have no access to it.");
+	}
+	XmlElement job = jobs[0];
+	string jobNumber = Text(job, "item_number");
+	jobResult = new Newtonsoft.Json.Linq.JObject();
+	jobResult.Add("id", jobId);
+	jobResult.Add("number", jobNumber);
+	jobResult.Add("state", Text(job, "state"));
+	if (Text(job, "created_by_id") != userId)
+	{
+		return Reject("JOB_NOT_CREATOR", "Only the user who created job " + jobNumber + " can run it.");
+	}
+	string state = Text(job, "state");
+	if (state != "Generated" && state != "Validated")
+	{
+		return Reject("JOB_STATE", state == "Imported"
+			? "Job " + jobNumber + " has been imported and cannot be used again. Start a new job."
+			: "Job " + jobNumber + " is in state " + state + ". Generate its workbook before uploading one.");
+	}
+	string targetId = Text(job, "target_itemtype");
+	string token = Text(job, "workbook_token");
+	if (targetId.Length == 0 || token.Length == 0)
+	{
+		return Reject("JOB_INCOMPLETE", "Job " + jobNumber + " has no generated workbook yet. Generate the workbook first.");
+	}
+	List<string> targetIds = JobTargetIds(job);
+	if (targetIds == null)
+	{
+		return Reject("JOB_INCOMPLETE", "The list of target ItemTypes of job " + jobNumber + " can't be read. Generate the workbook again.");
+	}
+	mainCount = targetIds.Count;
+	// What a target is called in a message: the label the workbook gives its main sheet.
+	Func<int, string> targetLabel = (index) =>
+	{
+		Newtonsoft.Json.Linq.JToken itemType = index < metaSheets.Count ? metaSheets[index]["itemType"] : null;
+		return index == 0 ? Attribute(job, "target_itemtype", "keyed_name")
+			: Str(itemType, "label") ?? Str(itemType, "name") ?? targetIds[index];
+	};
+
+	// The workbook belongs to this job, in this database, as it was last generated.
+	if (Str(meta, "formatVersion") != FormatVersion.ToString(CultureInfo.InvariantCulture))
+	{
+		return Reject("WORKBOOK_FORMAT", "The workbook has a format this version of Mass Create & Edit does not read. Generate the workbook again.");
+	}
+	string database = inn.getConnection().GetDatabaseName();
+	string workbookDatabase = Str(meta, "database") ?? "";
+	if (!string.Equals(workbookDatabase.Trim(), database, StringComparison.OrdinalIgnoreCase))
+	{
+		UploadIssue(true, "DATABASE_MISMATCH", "The workbook was generated from database '" + Clip(workbookDatabase) + "', and this is '" + database + "'.", null, null);
+	}
+	Newtonsoft.Json.Linq.JObject metaJob = meta["job"] as Newtonsoft.Json.Linq.JObject;
+	if (!string.Equals(Str(metaJob, "id") ?? "", jobId, StringComparison.OrdinalIgnoreCase))
+	{
+		UploadIssue(true, "WORKBOOK_OTHER_JOB", "The workbook was not generated by job " + jobNumber + ". A job accepts only its own workbook.", null, null);
+	}
+	else if ((Str(metaJob, "token") ?? "") != token)
+	{
+		UploadIssue(true, "WORKBOOK_OUTDATED",
+			"The workbook is an older copy: job " + jobNumber + " has generated a new workbook since. Fill in the latest workbook.", null, null);
+	}
+	if (HasUploadErrors())
+	{
+		return "rejected";
+	}
+
+	// The settings that apply to every job.
+	List<XmlElement> configs = TryQuery("<Item type=\"FRG_MassCreateEdit_Config\" action=\"get\" select=\"name,max_rows,max_file_size_mb,batch_size,max_attachment_mb,max_attachments_total_mb,max_attachments,allowed_extensions\"/>");
+	if (configs == null || configs.Count == 0)
+	{
+		return Reject("CONFIG_MISSING", "The Mass Create & Edit configuration was not found. Ask an administrator to check it.");
+	}
+	XmlElement config = configs.FirstOrDefault(c => Text(c, "name") == "Default") ?? configs[0];
+	int maxRows = Number(config, "max_rows") ?? 5000;
+	int maxFileSizeMb = Number(config, "max_file_size_mb") ?? 10;
+	limitsResult = new Newtonsoft.Json.Linq.JObject();
+	limitsResult.Add("maxRows", maxRows);
+	limitsResult.Add("maxFileSizeMb", maxFileSizeMb);
+	limitsResult.Add("batchSize", Number(config, "batch_size") ?? 50);
+	int maxAttachmentMb = Number(config, "max_attachment_mb") ?? 100;
+	int maxAttachmentsMb = Number(config, "max_attachments_total_mb") ?? 2000;
+	maxAttachments = Number(config, "max_attachments") ?? 1000;
+	maxAttachmentBytes = (long)maxAttachmentMb * 1024 * 1024;
+	maxAttachmentsBytes = (long)maxAttachmentsMb * 1024 * 1024;
+	List<string> extensions = Text(config, "allowed_extensions").Split(new char[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries)
+		.Select(e => e.Trim().TrimStart('.').ToLowerInvariant()).Where(e => e.Length > 0).Distinct().ToList();
+	allowedExtensions = extensions.Count == 0 ? null : new HashSet<string>(extensions, StringComparer.Ordinal);
+	limitsResult.Add("maxAttachmentMb", maxAttachmentMb);
+	limitsResult.Add("maxAttachmentsTotalMb", maxAttachmentsMb);
+	limitsResult.Add("maxAttachments", maxAttachments);
+	limitsResult.Add("allowedExtensions", new Newtonsoft.Json.Linq.JArray(extensions));
+	// A row with an identity allows the ItemType only to members of that identity. Every
+	// target of the job must be allowed.
+	List<XmlElement> allowList = TryQuery(
+		"<Item type=\"FRG_MassCreateEdit_AllowedType\" action=\"get\" select=\"related_id,identity_id\" related_expand=\"0\">" +
+		"<source_id>" + config.GetAttribute("id") + "</source_id></Item>") ?? new List<XmlElement>();
+	HashSet<string> myIdentities = new HashSet<string>(
+		Aras.Server.Security.Permissions.Current.IdentitiesList.Split(',').Select(id => id.Trim().Trim('\'')), StringComparer.OrdinalIgnoreCase);
+	for (int index = 0; index < targetIds.Count; index++)
+	{
+		List<XmlElement> allowed = allowList.Where(a => string.Equals(Text(a, "related_id"), targetIds[index], StringComparison.OrdinalIgnoreCase)).ToList();
+		if (allowed.Count == 0)
+		{
+			return Reject("ITEMTYPE_NOT_ALLOWED",
+				"ItemType '" + targetLabel(index) + "' is no longer allowed for Mass Create & Edit. Ask an administrator.");
+		}
+		if (!allowed.Any(a => Text(a, "identity_id").Length == 0 || myIdentities.Contains(Text(a, "identity_id"))))
+		{
+			return Reject("ITEMTYPE_NOT_ALLOWED",
+				"Mass Create & Edit on ItemType '" + targetLabel(index) + "' is limited to the members of identity '" +
+				Attribute(allowed[0], "identity_id", "keyed_name") + "'. Ask an administrator.");
+		}
+	}
+
+	// The limits.
+	long maxBytes = (long)maxFileSizeMb * 1024 * 1024;
+	long fileSize;
+	if (long.TryParse(Input("file_size"), NumberStyles.Integer, CultureInfo.InvariantCulture, out fileSize) && fileSize > maxBytes)
+	{
+		UploadIssue(true, "UPLOAD_TOO_LARGE", "The file is " + Megabytes(fileSize) + " MB. The limit is " + maxFileSizeMb + " MB.", null, null);
+	}
+	else if (Encoding.UTF8.GetByteCount(workbookText) > maxBytes)
+	{
+		UploadIssue(true, "UPLOAD_TOO_LARGE",
+			"The workbook holds " + Megabytes(Encoding.UTF8.GetByteCount(workbookText)) + " MB of data. The limit is " + maxFileSizeMb + " MB.", null, null);
+	}
+
+	// The sheets of the workbook: a main sheet for each target, first, in the order of the
+	// targets, and the job's relationship sheets.
+	List<XmlElement> jobSheets = TryQuery(
+		"<Item type=\"FRG_MassCreateEdit_Sheet\" action=\"get\" select=\"relationship_type,item_type,match_properties\">" +
+		"<source_id>" + jobId + "</source_id></Item>") ?? new List<XmlElement>();
+	List<string> jobRelationshipIds = jobSheets.Select(s => Text(s, "relationship_type")).Where(id => id.Length > 0).Distinct().ToList();
+	if (metaSheets.Count < mainCount || metaSheets.Take(mainCount).Any(s => Str(s, "kind") != "main") ||
+		metaSheets.Skip(mainCount).Any(s => Str(s, "kind") != "relationship"))
+	{
+		return metaSheets.Count(s => Str(s, "kind") == "main") != mainCount
+			? Reject("TARGET_MISMATCH", "The workbook has " + metaSheets.Count(s => Str(s, "kind") == "main") + " main sheets, and job " + jobNumber + " has " +
+				mainCount + (mainCount == 1 ? " target." : " targets.") + " Generate the workbook again.")
+			: Reject("BAD_REQUEST", "The workbook data could not be read: its main sheets are not first. Upload the workbook again.");
+	}
+	for (int index = 0; index < mainCount; index++)
+	{
+		if (!string.Equals(Str(metaSheets[index]["itemType"], "id") ?? "", targetIds[index], StringComparison.OrdinalIgnoreCase))
+		{
+			return Reject("TARGET_MISMATCH", mainCount == 1
+				? "The workbook is for another ItemType than job " + jobNumber + "."
+				: "Sheet '" + Clip(Str(metaSheets[index], "sheetName") ?? "") + "' of the workbook is not the main sheet of target " + targetLabel(index) + " of job " + jobNumber + ".");
+		}
+	}
+	mainSheetNames = metaSheets.Take(mainCount).Select(s => Str(s, "sheetName") ?? "").ToArray();
+	if (metaSheets.Count > mainCount)
+	{
+		foreach (XmlElement record in TryQuery(
+			"<Item type=\"FRG_MassCreateEdit_Record\" action=\"get\" select=\"sheet_name,row_number,target_config_id\">" +
+			"<source_id>" + jobId + "</source_id><action>Created</action></Item>") ?? new List<XmlElement>())
+		{
+			int rowNumber;
+			int sheet = Array.IndexOf(mainSheetNames, Text(record, "sheet_name"));
+			if (sheet >= 0 && Text(record, "target_config_id").Length > 0 &&
+				int.TryParse(Text(record, "row_number"), NumberStyles.Integer, CultureInfo.InvariantCulture, out rowNumber))
+			{
+				createdMainRows[Text(record, "target_config_id")] = NewRowName(sheet, rowNumber);
+			}
+		}
+	}
+	List<string> workbookRelationshipIds = metaSheets.Skip(mainCount).Select(s => (Str(s["relationshipType"], "id") ?? "").ToUpperInvariant()).ToList();
+	if (workbookRelationshipIds.Distinct().Count() != workbookRelationshipIds.Count ||
+		!SameSet(workbookRelationshipIds, jobRelationshipIds))
+	{
+		return Reject("SHEETS_MISMATCH", "The relationship sheets of the workbook are not the ones job " + jobNumber + " has now. Generate the workbook again.");
+	}
+	for (int index = 0; index < dataSheets.Count; index++)
+	{
+		Newtonsoft.Json.Linq.JToken rows = dataSheets[index]["rows"];
+		if (JsonFlag(dataSheets[index], "missing") || !(rows is Newtonsoft.Json.Linq.JArray))
+		{
+			UploadIssue(true, "SHEET_MISSING",
+				"Sheet '" + Clip(Str(metaSheets[index], "sheetName") ?? "") + "' is missing from the workbook. A sheet can be left empty, but not deleted or renamed.",
+				Str(metaSheets[index], "sheetName"), null);
+		}
+	}
+	if (HasUploadErrors())
+	{
+		return "rejected";
+	}
+	// The limit counts the rows of all main sheets together.
+	int mainRowCount = dataSheets.Take(mainCount).Sum(s => ((Newtonsoft.Json.Linq.JArray)s["rows"]).Count);
+	if (mainRowCount > maxRows)
+	{
+		return Reject("TOO_MANY_ROWS", (mainCount == 1 ? "The main sheet has " : "The main sheets have ") + mainRowCount +
+			" rows. The limit is " + maxRows + " rows for one upload; split the workbook.");
+	}
+
+	// The current definitions: the template of the job as it would be generated now.
+	try
+	{
+		schema = LoadCurrentSchema(jobId, targetIds, workbookRelationshipIds, metaSheets);
+	}
+	catch (ApplicationException ex)
+	{
+		return Reject("SCHEMA_UNAVAILABLE", "The template of job " + jobNumber + " cannot be built any more: " + ex.Message);
+	}
+	if (schema == null)
+	{
+		return "rejected";
+	}
+	Newtonsoft.Json.Linq.JArray schemaSheets = (Newtonsoft.Json.Linq.JArray)schema["sheets"];
+	definitionChanged = (Str(meta, "definitionHash") ?? "") != (string)schema["definitionHash"];
+	if (definitionChanged)
+	{
+		UploadIssue(false, "DEFINITION_CHANGED",
+			"The definition of the ItemType, its relationships or its lists changed after the workbook was generated. The rows are checked against the definition as it is now.",
+			null, null);
+	}
+
+	// The key of each main sheet, and the match key of each relationship sheet, are the
+	// ones the job stored when it generated the workbook, and still the ones of today. The
+	// first target's key is on the job, the others' on the Sheet rows of their main sheets.
+	mainSheetDefs = schemaSheets.Take(mainCount).Cast<Newtonsoft.Json.Linq.JObject>().ToArray();
+	mainRowByKey = new Dictionary<string, int>[mainCount];
+	mainRowNumbers = new int[mainCount][];
+	mainRowFailed = new bool[mainCount][];
+	mainRowItems = new XmlElement[mainCount][];
+	for (int index = 0; index < mainCount; index++)
+	{
+		Newtonsoft.Json.Linq.JObject metaMain = (Newtonsoft.Json.Linq.JObject)metaSheets[index];
+		List<string> currentKey = Columns(mainSheetDefs[index]).Where(c => (bool)c["isKey"]).Select(c => (string)c["id"]).ToList();
+		XmlElement mainRow = jobSheets.FirstOrDefault(s => Text(s, "relationship_type").Length == 0 &&
+			string.Equals(Text(s, "item_type"), targetIds[index], StringComparison.OrdinalIgnoreCase));
+		List<string> jobKey = index == 0 ? SplitList(Text(job, "key_properties")) : mainRow == null ? null : SplitList(Text(mainRow, "match_properties"));
+		string what = mainCount == 1 ? "the ItemType" : "ItemType " + targetLabel(index);
+		if (jobKey == null || !SameSet(StringArray(metaMain, "keyColumns"), jobKey))
+		{
+			UploadIssue(true, "KEY_MISMATCH", "The key columns of " + (mainCount == 1 ? "the workbook" : "sheet '" + Clip(Str(metaMain, "sheetName") ?? "") + "'") +
+				" are not the ones job " + jobNumber + " stored. Generate the workbook again.", Str(metaMain, "sheetName"), null);
+		}
+		else if (!SameSet(currentKey, jobKey))
+		{
+			UploadIssue(true, "KEY_CHANGED",
+				"The Unique properties of " + what + " changed after the workbook was generated (now: " +
+				(currentKey.Count == 0 ? "none" : string.Join(", ", currentKey)) + "). Generate the workbook again.", Str(metaMain, "sheetName"), null);
+		}
+	}
+	for (int index = mainCount; index < schemaSheets.Count; index++)
+	{
+		Newtonsoft.Json.Linq.JObject sheetDef = (Newtonsoft.Json.Linq.JObject)schemaSheets[index];
+		string sheetName = Str(metaSheets[index], "sheetName");
+		List<string> currentMatchKey = Columns(sheetDef).Where(c => (bool)c["isMatchKey"]).Select(c => (string)c["id"]).ToList();
+		if (!SameSet(StringArray(metaSheets[index], "matchKeyColumns"), currentMatchKey))
+		{
+			UploadIssue(true, "MATCH_KEY_MISMATCH",
+				"The match key of sheet '" + Clip(sheetName ?? "") + "' is not the one job " + jobNumber + " has now (" + string.Join(", ", currentMatchKey) + "). Generate the workbook again.",
+				sheetName, null);
+		}
+	}
+	if (HasUploadErrors())
+	{
+		return "rejected";
+	}
+
+	LoadDefinitions(schemaSheets);
+
+	// The rows.
+	for (int index = 0; index < schemaSheets.Count; index++)
+	{
+		sheetResults.Add(ValidateSheet(
+			index, (Newtonsoft.Json.Linq.JObject)schemaSheets[index], (Newtonsoft.Json.Linq.JObject)metaSheets[index],
+			(Newtonsoft.Json.Linq.JArray)dataSheets[index]["rows"]));
+	}
+	CheckPickedFiles();
+	return HasUploadErrors() ? "rejected" : "validated";
+}
+
+// The current template schema of the job: its main sheets, in the order of its targets, then
+// its relationship sheets in the order of the workbook. The schema Method builds it from the
+// job: the job's targets, its Sheet rows and the match key stored on each. This is the only
+// place that calls it. Returns null when a stored match key no longer fits its sheet; that is
+// reported here.
+Newtonsoft.Json.Linq.JObject LoadCurrentSchema(string jobId, List<string> targetIds, List<string> relationshipIds, Newtonsoft.Json.Linq.JArray metaSheets)
+{
+	// An error with a code of its own is read from the error result, or from the fault XML
+	// in the message of an exception.
+	Item result;
+	string faultCode = null;
+	string faultString = null;
+	string faultDetail = null;
+	try
+	{
+		result = inn.applyMethod("FRG_MCE_GetTemplateSchema", "<job_id>" + Xml(jobId) + "</job_id>");
+		if (result.isError())
+		{
+			faultCode = result.getErrorCode();
+			faultString = result.getErrorString();
+			faultDetail = result.getErrorDetail();
+		}
+	}
+	catch (Exception ex)
+	{
+		result = null;
+		faultCode = FaultPart(ex.Message, "faultcode");
+		faultString = FaultPart(ex.Message, "faultstring") ?? ex.Message;
+		faultDetail = FaultPart(ex.Message, "detail");
+	}
+	queryCount++;
+	if (faultString != null)
+	{
+		if (faultCode == "MCE_MATCH_KEY_INVALID")
+		{
+			int index = relationshipIds.IndexOf((faultDetail ?? "").Trim().ToUpperInvariant());
+			string sheetName = index < 0 ? null : Str(metaSheets[index + targetIds.Count], "sheetName");
+			UploadIssue(true, "MATCH_KEY_INVALID",
+				(sheetName == null ? "" : "Sheet '" + Clip(sheetName) + "': ") + faultString + " Generate the workbook again.", sheetName, null);
+			return null;
+		}
+		throw new ApplicationException(faultString);
+	}
+	Newtonsoft.Json.Linq.JObject current = ParseJson(result.getResult()) as Newtonsoft.Json.Linq.JObject;
+	Newtonsoft.Json.Linq.JArray sheets = current == null ? null : current["sheets"] as Newtonsoft.Json.Linq.JArray;
+	int mains = targetIds.Count;
+	if (sheets == null || sheets.Count != relationshipIds.Count + mains || Enumerable.Range(0, mains).Any(index =>
+		(string)sheets[index]["kind"] != "main" || !string.Equals((string)sheets[index]["itemType"]["id"], targetIds[index], StringComparison.OrdinalIgnoreCase)))
+	{
+		throw new ApplicationException("the template schema could not be read.");
+	}
+	Newtonsoft.Json.Linq.JArray ordered = new Newtonsoft.Json.Linq.JArray(sheets.Take(mains));
+	foreach (string id in relationshipIds)
+	{
+		Newtonsoft.Json.Linq.JToken sheet = sheets.Skip(mains).FirstOrDefault(s => string.Equals((string)s["relationshipType"]["id"], id, StringComparison.OrdinalIgnoreCase));
+		if (sheet == null)
+		{
+			throw new ApplicationException("the template schema could not be read.");
+		}
+		ordered.Add(sheet);
+	}
+	current["sheets"] = ordered;
+	return current;
+}
+
+// What the schema does not carry and the checks need: the lists as a drop-down shows
+// them, the values of filter lists with their filters, and who may add items.
+void LoadDefinitions(Newtonsoft.Json.Linq.JArray schemaSheets)
+{
+	Newtonsoft.Json.Linq.JObject lists = schema["lists"] as Newtonsoft.Json.Linq.JObject ?? new Newtonsoft.Json.Linq.JObject();
+	foreach (Newtonsoft.Json.Linq.JProperty list in lists.Properties())
+	{
+		listEntries[list.Name] = DisplayedEntries(list.Value["values"] as Newtonsoft.Json.Linq.JArray);
+	}
+
+	List<string> typeIds = new List<string>();
+	List<string> filterLists = new List<string>();
+	foreach (Newtonsoft.Json.Linq.JObject sheetDef in schemaSheets)
+	{
+		typeIds.Add((string)sheetDef["itemType"]["id"]);
+		foreach (Newtonsoft.Json.Linq.JObject column in Columns(sheetDef))
+		{
+			if ((string)column["dataType"] == "filter list" && (string)column["listId"] != null)
+			{
+				filterLists.Add((string)column["listId"]);
+			}
+		}
+	}
+	typeIds = typeIds.Distinct().ToList();
+	if (filterLists.Count > 0)
+	{
+		foreach (XmlElement value in Query(
+			"<Item type=\"Filter Value\" action=\"get\" select=\"source_id,value,filter,inactive\">" +
+			"<source_id condition=\"in\">" + IdList(filterLists.Distinct()) + "</source_id></Item>"))
+		{
+			string listId = Text(value, "source_id");
+			if (!filterValues.ContainsKey(listId))
+			{
+				filterValues[listId] = new List<XmlElement>();
+			}
+			filterValues[listId].Add(value);
+		}
+	}
+
+	// Who may add items: the Can Add rows of each ItemType, and for a relationship
+	// whether it takes its access from its parent.
+	foreach (XmlElement itemType in TryQuery(
+		"<Item type=\"ItemType\" action=\"get\" select=\"name,use_src_access,is_versionable,manual_versioning\" idlist=\"" + string.Join(",", typeIds.Where(IsId)) + "\"/>") ?? new List<XmlElement>())
+	{
+		itemTypes[itemType.GetAttribute("id")] = itemType;
+	}
+	foreach (Newtonsoft.Json.Linq.JObject mainDef in mainSheetDefs)
+	{
+		XmlElement mainItemType;
+		string mainTypeId = (string)mainDef["itemType"]["id"];
+		versionsOnEdit[mainTypeId] = itemTypes.TryGetValue(mainTypeId, out mainItemType)
+			? Flag(mainItemType, "is_versionable") && !Flag(mainItemType, "manual_versioning")
+			: (bool)mainDef["itemType"]["isVersionable"];
+	}
+	foreach (XmlElement canAdd in TryQuery(
+		"<Item type=\"Can Add\" action=\"get\" select=\"source_id,related_id,can_add,class_path\" related_expand=\"0\">" +
+		"<source_id condition=\"in\">" + IdList(typeIds) + "</source_id></Item>") ?? new List<XmlElement>())
+	{
+		string typeId = Text(canAdd, "source_id");
+		if (!canAddRows.ContainsKey(typeId))
+		{
+			canAddRows[typeId] = new List<XmlElement>();
+		}
+		canAddRows[typeId].Add(canAdd);
+	}
+	XmlNode identities = CallServer("GetIdentityList", "<Item/>");
+	foreach (string id in (identities == null ? "" : identities.InnerText).Split(','))
+	{
+		if (id.Trim().Length > 0)
+		{
+			userIdentities.Add(id.Trim());
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------------
+// One sheet
+// ---------------------------------------------------------------------------------
+
+// Checks the rows of one sheet and returns the sheet's part of the result. The main
+// sheets go first: the relationship sheets look their parents, and related items that the
+// workbook creates, up in them.
+Newtonsoft.Json.Linq.JObject ValidateSheet(int sheetIndex, Newtonsoft.Json.Linq.JObject sheetDef, Newtonsoft.Json.Linq.JObject metaSheet, Newtonsoft.Json.Linq.JArray rows)
+{
+	bool isRelationship = (string)sheetDef["kind"] == "relationship";
+	// The main sheet of the parents, and the main sheet whose rows can be the related items (-1: none).
+	int parentSheet = isRelationship ? ParentSheetOf(sheetDef) : sheetIndex;
+	int relatedSheet = isRelationship ? RelatedSheetOf(sheetDef) : -1;
+	Newtonsoft.Json.Linq.JObject mainSheetDef = mainSheetDefs[parentSheet];
+	string typeId = (string)sheetDef["itemType"]["id"];
+	string typeName = (string)sheetDef["itemType"]["name"];
+	bool versionable = (bool)sheetDef["itemType"]["isVersionable"];
+	bool createOnly = (bool)sheetDef["createOnly"];
+	List<Newtonsoft.Json.Linq.JObject> columns = Columns(sheetDef);
+	Dictionary<string, Newtonsoft.Json.Linq.JObject> columnById = columns.ToDictionary(c => (string)c["id"], StringComparer.Ordinal);
+	List<Newtonsoft.Json.Linq.JObject> ownColumns = columns.Where(c => (string)c["role"] == "property").ToList();
+	List<Newtonsoft.Json.Linq.JObject> keyColumns = isRelationship ? new List<Newtonsoft.Json.Linq.JObject>() : columns.Where(c => (bool)c["isKey"]).ToList();
+	List<Newtonsoft.Json.Linq.JObject> parentKeyColumns = columns.Where(c => (string)c["role"] == "parentKey").ToList();
+	List<Newtonsoft.Json.Linq.JObject> relatedKeyColumns = columns.Where(c => (string)c["role"] == "relatedKey").ToList();
+	List<string> classPaths = sheetDef["classPaths"] is Newtonsoft.Json.Linq.JArray
+		? ((Newtonsoft.Json.Linq.JArray)sheetDef["classPaths"]).Select(p => (string)p).ToList()
+		: null;
+	Newtonsoft.Json.Linq.JObject classColumn = ownColumns.FirstOrDefault(c => (bool)c["isClassification"]);
+
+	// The columns of the workbook against the columns of today.
+	Dictionary<string, string> columnStatus = new Dictionary<string, string>(StringComparer.Ordinal);
+	Dictionary<string, string> workbookTypes = new Dictionary<string, string>(StringComparer.Ordinal);
+	foreach (Newtonsoft.Json.Linq.JToken workbookColumn in metaSheet["columns"] as Newtonsoft.Json.Linq.JArray ?? new Newtonsoft.Json.Linq.JArray())
+	{
+		string id = Str(workbookColumn, "id");
+		if (id != null)
+		{
+			workbookTypes[id] = Str(workbookColumn, "dataType") ?? "";
+		}
+	}
+	foreach (Newtonsoft.Json.Linq.JObject column in columns)
+	{
+		string id = (string)column["id"];
+		string workbookType;
+		columnStatus[id] = !workbookTypes.TryGetValue(id, out workbookType) ? "added"
+			: workbookType != (string)column["dataType"] ? "typeChanged" : "ok";
+		if (columnStatus[id] == "typeChanged")
+		{
+			UploadIssue(false, "COLUMN_TYPE_CHANGED",
+				"Column '" + (string)column["label"] + "' changed from " + workbookType + " to " + (string)column["dataType"] +
+				" after the workbook was generated. Rows with a value in it are refused; generate the workbook again to fill it in.",
+				Str(metaSheet, "sheetName"), id);
+		}
+	}
+	foreach (string id in workbookTypes.Keys.Where(k => !columnById.ContainsKey(k)))
+	{
+		columnStatus[id] = "unknown";
+		UploadIssue(false, "COLUMN_UNKNOWN",
+			"Column '" + Clip(id) + "' is no longer part of this sheet: the property was removed, or it can no longer be edited. Its values are ignored.",
+			Str(metaSheet, "sheetName"), id);
+	}
+
+	// The state of each row, by row index.
+	int count = rows.Count;
+	int[] rowNumbers = new int[count];
+	string[] modifiedOn = new string[count];
+	Newtonsoft.Json.Linq.JArray[] issues = new Newtonsoft.Json.Linq.JArray[count];
+	int[] errorCount = new int[count];
+	int[] warningCount = new int[count];
+	// The valid cells: the stored value and the text shown, by column id.
+	Dictionary<string, string>[] values = new Dictionary<string, string>[count];
+	Dictionary<string, string>[] displays = new Dictionary<string, string>[count];
+	HashSet<string>[] cleared = new HashSet<string>[count];
+	// The columns of the row that have a problem of their own already.
+	HashSet<string>[] failedColumns = new HashSet<string>[count];
+	// A value that is refused unless it turns out to be the value Aras already has:
+	// column id to { code, message, the text of the cell }.
+	Dictionary<string, string[]>[] pending = new Dictionary<string, string[]>[count];
+	XmlElement[] existing = new XmlElement[count];
+	string[] actions = new string[count];
+	// Update rows: the cells that differ, as { new value, new text, old value, old text }.
+	Dictionary<string, string[]>[] changes = new Dictionary<string, string[]>[count];
+	// Item-reference cells waiting to be resolved: row, column id, the text of the cell.
+	List<Tuple<int, string, string>> references = new List<Tuple<int, string, string>>();
+	// File cells waiting to be resolved against the picked files: row, column id, the text.
+	List<Tuple<int, string, string>> fileReferences = new List<Tuple<int, string, string>>();
+	// Rows with the delete marker.
+	bool[] deleteRows = new bool[count];
+	// On a sheet whose related item is a File: the picked file the row names, as a file
+	// token; null when it names none.
+	string[] relatedFileTokens = new string[count];
+
+	void Problem(int row, string columnId, bool isError, string code, string message)
+	{
+		Newtonsoft.Json.Linq.JObject issue = new Newtonsoft.Json.Linq.JObject();
+		issue.Add("column", columnId);
+		issue.Add("severity", isError ? "error" : "warning");
+		issue.Add("code", code);
+		issue.Add("message", message);
+		issues[row].Add(issue);
+		if (isError)
+		{
+			errorCount[row]++;
+			if (columnId != null)
+			{
+				failedColumns[row].Add(columnId);
+			}
+		}
+		else
+		{
+			warningCount[row]++;
+		}
+	}
+
+	string Labelled(Newtonsoft.Json.Linq.JObject column, string message)
+	{
+		return (string)column["label"] + ": " + message;
+	}
+
+	// The value a row ends up with for a column: the cell when it has one, otherwise
+	// what the existing item has, otherwise nothing.
+	string FinalValue(int row, Newtonsoft.Json.Linq.JObject column)
+	{
+		string id = (string)column["id"];
+		string value;
+		if (values[row].TryGetValue(id, out value))
+		{
+			return value;
+		}
+		if (cleared[row].Contains(id) || existing[row] == null)
+		{
+			return "";
+		}
+		return Text(existing[row], (string)column["property"]);
+	}
+
+	// -- Step 1: every cell by itself ------------------------------------------------
+
+	for (int row = 0; row < count; row++)
+	{
+		issues[row] = new Newtonsoft.Json.Linq.JArray();
+		values[row] = new Dictionary<string, string>(StringComparer.Ordinal);
+		displays[row] = new Dictionary<string, string>(StringComparer.Ordinal);
+		cleared[row] = new HashSet<string>(StringComparer.Ordinal);
+		failedColumns[row] = new HashSet<string>(StringComparer.Ordinal);
+		pending[row] = new Dictionary<string, string[]>(StringComparer.Ordinal);
+		changes[row] = new Dictionary<string, string[]>(StringComparer.Ordinal);
+
+		Newtonsoft.Json.Linq.JObject source = rows[row] as Newtonsoft.Json.Linq.JObject;
+		int rowNumber;
+		rowNumbers[row] = source != null && int.TryParse(Str(source, "rowNumber"), NumberStyles.Integer, CultureInfo.InvariantCulture, out rowNumber)
+			? rowNumber : row + 2;
+		modifiedOn[row] = source == null ? null : (Str(source, "modifiedOn") ?? "").Trim();
+		Newtonsoft.Json.Linq.JObject cells = source == null ? null : source["cells"] as Newtonsoft.Json.Linq.JObject;
+		if (cells == null)
+		{
+			Problem(row, null, true, "ROW_INVALID", "The row could not be read.");
+			continue;
+		}
+		foreach (Newtonsoft.Json.Linq.JProperty cell in cells.Properties())
+		{
+			string id = cell.Name;
+			if (IsBlank(cell.Value))
+			{
+				continue;
+			}
+			Newtonsoft.Json.Linq.JObject column;
+			if (!columnById.TryGetValue(id, out column))
+			{
+				Problem(row, id, false, "COLUMN_UNKNOWN", "Column '" + Clip(id) + "' is no longer part of this sheet. Its value is ignored.");
+				continue;
+			}
+			if (columnStatus[id] == "typeChanged")
+			{
+				Problem(row, id, true, "COLUMN_TYPE_CHANGED", Labelled(column, "the data type of this column changed after the workbook was generated. Generate the workbook again."));
+				continue;
+			}
+			if ((string)column["role"] == "delete")
+			{
+				if (cell.Value.Type == Newtonsoft.Json.Linq.JTokenType.String && string.Equals(((string)cell.Value).Trim(), DeleteToken, StringComparison.OrdinalIgnoreCase))
+				{
+					deleteRows[row] = true;
+				}
+				else
+				{
+					Problem(row, id, true, "DELETE_INVALID", Labelled(column, "the only value this column takes is " + DeleteToken + ", which deletes the row this row matches."));
+				}
+				continue;
+			}
+			if (cell.Value.Type == Newtonsoft.Json.Linq.JTokenType.String && ((string)cell.Value).Trim() == ClearToken)
+			{
+				string refusal = (bool)column["isKey"] ? "a key column cannot be emptied."
+					: (bool)column["isMatchKey"] ? "a column of the match key cannot be emptied."
+					: (bool)column["required"] ? "a required value cannot be emptied."
+					: !MatchesPattern(column, "") ? "an empty value does not have the format this property asks for."
+					: null;
+				if (refusal != null)
+				{
+					Problem(row, id, true, "CLEAR_NOT_ALLOWED", Labelled(column, ClearToken + " is not allowed here: " + refusal));
+				}
+				else
+				{
+					cleared[row].Add(id);
+				}
+				continue;
+			}
+			string stored;
+			string display;
+			string[] problem = ConvertValue(column, classPaths, cell.Value, out stored, out display);
+			if (problem != null && problem[2] != null)
+			{
+				pending[row][id] = problem;
+			}
+			else if (problem != null)
+			{
+				Problem(row, id, true, problem[0], Labelled(column, problem[1]));
+			}
+			else if ((string)column["dataType"] == "item")
+			{
+				references.Add(Tuple.Create(row, id, display));
+			}
+			else if ((string)column["dataType"] == "file")
+			{
+				fileReferences.Add(Tuple.Create(row, id, display));
+			}
+			else
+			{
+				values[row][id] = stored;
+				if (display != null && display != stored)
+				{
+					displays[row][id] = display;
+				}
+			}
+		}
+	}
+
+	// -- Step 2: item references, by keyed name ---------------------------------------
+
+	foreach (IGrouping<string, Tuple<int, string, string>> group in references.GroupBy(r => r.Item2))
+	{
+		Newtonsoft.Json.Linq.JObject column = columnById[group.Key];
+		Newtonsoft.Json.Linq.JObject target = column["itemTarget"] as Newtonsoft.Json.Linq.JObject;
+		string targetName = target == null ? "" : (string)target["name"];
+		Dictionary<string, List<XmlElement>> found = ResolveReferences(targetName, group.Select(r => r.Item3));
+		foreach (Tuple<int, string, string> reference in group)
+		{
+			List<XmlElement> matches;
+			found.TryGetValue(MatchText(reference.Item3), out matches);
+			if (matches == null || matches.Count == 0)
+			{
+				Problem(reference.Item1, group.Key, true, "REF_NOT_FOUND", Labelled(column,
+					"no " + (target == null ? "item" : (string)target["label"]) + " with the keyed name '" + Clip(reference.Item3) + "' was found. The text must be the item's keyed name."));
+			}
+			else if (matches.Count > 1)
+			{
+				Problem(reference.Item1, group.Key, true, "REF_AMBIGUOUS", Labelled(column,
+					matches.Count + " items have the keyed name '" + Clip(reference.Item3) + "', so the reference cannot be resolved."));
+			}
+			else
+			{
+				values[reference.Item1][group.Key] = matches[0].GetAttribute("id");
+				displays[reference.Item1][group.Key] = KeyedName(matches[0]);
+			}
+		}
+	}
+
+	// -- Step 2b: files, by name among the picked files -------------------------------
+
+	foreach (Tuple<int, string, string> reference in fileReferences)
+	{
+		int row = reference.Item1;
+		string id = reference.Item2;
+		Newtonsoft.Json.Linq.JObject column = columnById[id];
+		bool isRelated = (string)column["role"] == "relatedKey";
+		if (isRelated)
+		{
+			// The related file is named by its file name; whether it is a picked file or the one
+			// the row has already is settled once the rows are matched.
+			values[row][id] = FileNameOf(reference.Item3);
+		}
+		List<int> matches = FindPicked(reference.Item3);
+		if (matches.Count > 1)
+		{
+			Problem(row, id, true, "FILE_AMBIGUOUS", Labelled(column, matches.Count + " picked files fit '" + Clip(reference.Item3) + "' (" +
+				Clip(string.Join(", ", matches.Select(m => pickedFiles[m][0]))) + "). Write the path of the file inside the picked folder."));
+			continue;
+		}
+		if (matches.Count == 0)
+		{
+			if (!isRelated)
+			{
+				pending[row][id] = new string[] { "FILE_NOT_PICKED", NotPickedText(reference.Item3), reference.Item3 };
+			}
+			continue;
+		}
+		string[] problem = FileLimitProblem(pickedFiles[matches[0]]);
+		if (problem != null)
+		{
+			Problem(row, id, true, problem[0], Labelled(column, problem[1]));
+			continue;
+		}
+		usedPicked.Add(matches[0]);
+		string token = FileToken(pickedFiles[matches[0]]);
+		if (isRelated)
+		{
+			relatedFileTokens[row] = token;
+		}
+		else
+		{
+			values[row][id] = token;
+			displays[row][id] = pickedFiles[matches[0]][1];
+		}
+	}
+
+	// -- Steps 3 and 4: the item each row stands for ----------------------------------
+
+	Newtonsoft.Json.Linq.JArray parentsResult = null;
+	Newtonsoft.Json.Linq.JObject[] parentOf = new Newtonsoft.Json.Linq.JObject[count];
+	Newtonsoft.Json.Linq.JObject[] relatedOf = new Newtonsoft.Json.Linq.JObject[count];
+	string select = SelectFor(sheetDef, ownColumns, isRelationship);
+	if (isRelationship)
+	{
+		MatchRelationshipRows();
+	}
+	else
+	{
+		MatchMainRows();
+	}
+
+	// -- Step 5: the result ------------------------------------------------------------
+
+	// The digest names items by the id all their generations share, so the ids of the
+	// referenced items an update replaces are needed too.
+	foreach (IGrouping<string, Newtonsoft.Json.Linq.JObject> byTarget in ownColumns
+		.Where(c => (string)c["dataType"] == "item" && c["itemTarget"] is Newtonsoft.Json.Linq.JObject && (bool)c["itemTarget"]["isVersionable"])
+		.GroupBy(c => (string)c["itemTarget"]["name"]))
+	{
+		HashSet<string> ids = new HashSet<string>(byTarget.Select(c => (string)c["id"]), StringComparer.Ordinal);
+		LoadConfigIds(byTarget.Key, Enumerable.Range(0, count).SelectMany(r => changes[r].Where(c => ids.Contains(c.Key)).Select(c => c.Value[2])));
+	}
+
+	// A file replaced or removed on an item that keeps its generation is gone from it. On a
+	// relationship sheet the item is the parent.
+	bool versions;
+	if (versionsOnEdit.TryGetValue((string)mainSheetDef["itemType"]["id"], out versions) && !versions)
+	{
+		HashSet<string> fileColumns = new HashSet<string>(ownColumns.Where(c => (string)c["dataType"] == "file").Select(c => (string)c["id"]), StringComparer.Ordinal);
+		if (relatedKeyColumns.Any(c => (string)c["dataType"] == "file"))
+		{
+			fileColumns.Add(RelatedIdColumn);
+		}
+		string mainLabel = (string)mainSheetDef["itemType"]["label"];
+		for (int row = 0; row < count; row++)
+		{
+			if (errorCount[row] > 0)
+			{
+				continue;
+			}
+			if (fileColumns.Count > 0 && (actions[row] == "delete" || actions[row] == "update" && changes[row].Keys.Any(fileColumns.Contains)))
+			{
+				Problem(row, null, false, "FILE_REPLACED_IN_PLACE",
+					mainLabel + " does not get a new generation when it is edited, so the current generation " +
+					(actions[row] == "delete" ? "loses this file." : "gets the new file, and the file it has now is no longer linked to it."));
+			}
+		}
+	}
+
+	Newtonsoft.Json.Linq.JArray rowResults = new Newtonsoft.Json.Linq.JArray();
+	int[] tally = new int[7];
+	for (int row = 0; row < count; row++)
+	{
+		string action = errorCount[row] > 0 ? "error" : actions[row] ?? "error";
+		Newtonsoft.Json.Linq.JObject result = new Newtonsoft.Json.Linq.JObject();
+		result.Add("row", rowNumbers[row]);
+		result.Add("action", action);
+		result.Add("digest", null);
+		if (existing[row] != null)
+		{
+			result.Add("id", existing[row].GetAttribute("id"));
+			result.Add("keyedName", KeyedName(existing[row]));
+		}
+		if (issues[row].Count > 0)
+		{
+			result.Add("issues", issues[row]);
+		}
+		if (action == "new")
+		{
+			Newtonsoft.Json.Linq.JObject written = new Newtonsoft.Json.Linq.JObject();
+			Newtonsoft.Json.Linq.JObject shown = new Newtonsoft.Json.Linq.JObject();
+			foreach (KeyValuePair<string, string> value in values[row])
+			{
+				string role = (string)columnById[value.Key]["role"];
+				if (role != "property")
+				{
+					continue;
+				}
+				written.Add(value.Key, value.Value);
+				string text;
+				if (displays[row].TryGetValue(value.Key, out text))
+				{
+					shown.Add(value.Key, text);
+				}
+			}
+			result.Add("values", written);
+			if (shown.Count > 0)
+			{
+				result.Add("display", shown);
+			}
+		}
+		else if (action == "update")
+		{
+			Newtonsoft.Json.Linq.JObject written = new Newtonsoft.Json.Linq.JObject();
+			Newtonsoft.Json.Linq.JObject shown = new Newtonsoft.Json.Linq.JObject();
+			Newtonsoft.Json.Linq.JObject old = new Newtonsoft.Json.Linq.JObject();
+			Newtonsoft.Json.Linq.JObject oldShown = new Newtonsoft.Json.Linq.JObject();
+			foreach (KeyValuePair<string, string[]> change in changes[row])
+			{
+				written.Add(change.Key, change.Value[0]);
+				old.Add(change.Key, change.Value[2]);
+				if (change.Value[1] != null && change.Value[1] != change.Value[0])
+				{
+					shown.Add(change.Key, change.Value[1]);
+				}
+				if (change.Value[3] != null && change.Value[3] != change.Value[2])
+				{
+					oldShown.Add(change.Key, change.Value[3]);
+				}
+			}
+			result.Add("values", written);
+			if (shown.Count > 0)
+			{
+				result.Add("display", shown);
+			}
+			result.Add("old", old);
+			if (oldShown.Count > 0)
+			{
+				result.Add("oldDisplay", oldShown);
+			}
+		}
+		if (isRelationship)
+		{
+			result.Add("parent", (Newtonsoft.Json.Linq.JToken)parentOf[row] ?? Newtonsoft.Json.Linq.JValue.CreateNull());
+			result.Add("related", (Newtonsoft.Json.Linq.JToken)relatedOf[row] ?? Newtonsoft.Json.Linq.JValue.CreateNull());
+		}
+		result["digest"] = RowDigest(result, existing[row], columnById);
+		rowResults.Add(result);
+		tally[action == "new" ? 0 : action == "update" ? 1 : action == "none" ? 2 : action == "delete" ? 6 : 3]++;
+		tally[4] += errorCount[row];
+		tally[5] += warningCount[row];
+	}
+
+	Newtonsoft.Json.Linq.JArray columnResults = new Newtonsoft.Json.Linq.JArray();
+	foreach (Newtonsoft.Json.Linq.JObject column in columns)
+	{
+		Newtonsoft.Json.Linq.JObject columnResult = new Newtonsoft.Json.Linq.JObject();
+		columnResult.Add("id", (string)column["id"]);
+		columnResult.Add("property", (string)column["property"]);
+		columnResult.Add("label", (string)column["label"]);
+		columnResult.Add("dataType", (string)column["dataType"]);
+		columnResult.Add("pattern", (string)column["pattern"]);
+		columnResult.Add("status", columnStatus[(string)column["id"]]);
+		columnResults.Add(columnResult);
+	}
+	foreach (KeyValuePair<string, string> status in columnStatus.Where(s => s.Value == "unknown"))
+	{
+		Newtonsoft.Json.Linq.JObject columnResult = new Newtonsoft.Json.Linq.JObject();
+		columnResult.Add("id", status.Key);
+		columnResult.Add("property", null);
+		columnResult.Add("label", status.Key);
+		columnResult.Add("dataType", workbookTypes[status.Key]);
+		columnResult.Add("pattern", null);
+		columnResult.Add("status", "unknown");
+		columnResults.Add(columnResult);
+	}
+
+	Newtonsoft.Json.Linq.JObject totals = new Newtonsoft.Json.Linq.JObject();
+	totals.Add("rows", count);
+	totals.Add("new", tally[0]);
+	totals.Add("update", tally[1]);
+	totals.Add("none", tally[2]);
+	totals.Add("delete", tally[6]);
+	totals.Add("error", tally[3]);
+	totals.Add("errors", tally[4]);
+	totals.Add("warnings", tally[5]);
+
+	Newtonsoft.Json.Linq.JObject sheetResult = new Newtonsoft.Json.Linq.JObject();
+	sheetResult.Add("index", sheetIndex);
+	sheetResult.Add("sheetName", Str(metaSheet, "sheetName"));
+	sheetResult.Add("kind", (string)sheetDef["kind"]);
+	sheetResult.Add("itemType", sheetDef["itemType"].DeepClone());
+	sheetResult.Add("relationshipType", sheetDef["relationshipType"].DeepClone());
+	sheetResult.Add("createOnly", createOnly);
+	sheetResult.Add("keyColumns", new Newtonsoft.Json.Linq.JArray(columns.Where(c => (bool)c["isKey"]).Select(c => (string)c["id"])));
+	sheetResult.Add("matchKeyColumns", new Newtonsoft.Json.Linq.JArray(columns.Where(c => (bool)c["isMatchKey"]).Select(c => (string)c["id"])));
+	sheetResult.Add("columns", columnResults);
+	sheetResult.Add("totals", totals);
+	sheetResult.Add("rows", rowResults);
+	if (parentsResult != null)
+	{
+		sheetResult.Add("parents", parentsResult);
+	}
+	if (isRelationship)
+	{
+		sheetResult.Add("parentSheet", parentSheet);
+		sheetResult.Add("relatedSheet", relatedSheet < 0 ? null : (int?)relatedSheet);
+	}
+	return sheetResult;
+
+	// -- The main sheet -----------------------------------------------------------------
+
+	void MatchMainRows()
+	{
+		// The key of every row. A blank key column is an error; the row is never "new".
+		string[] keys = new string[count];
+		Dictionary<string, string[]> wanted = new Dictionary<string, string[]>(StringComparer.Ordinal);
+		Dictionary<string, List<int>> rowsByKey = new Dictionary<string, List<int>>(StringComparer.Ordinal);
+		for (int row = 0; row < count; row++)
+		{
+			if (createOnly || errorCount[row] > 0 && issues[row].Any(i => (string)i["code"] == "ROW_INVALID"))
+			{
+				continue;
+			}
+			keys[row] = KeyOf(row, keyColumns, true);
+			if (keys[row] == null)
+			{
+				continue;
+			}
+			if (!rowsByKey.ContainsKey(keys[row]))
+			{
+				rowsByKey[keys[row]] = new List<int>();
+				wanted[keys[row]] = keyColumns.Select(c => values[row][(string)c["id"]]).ToArray();
+			}
+			rowsByKey[keys[row]].Add(row);
+		}
+		foreach (KeyValuePair<string, List<int>> sameKey in rowsByKey.Where(k => k.Value.Count > 1))
+		{
+			foreach (int row in sameKey.Value)
+			{
+				Problem(row, null, true, "DUPLICATE_KEY",
+					"Rows " + JoinNumbers(sameKey.Value.Select(r => rowNumbers[r])) + " have the same key. A key can be on one row only.");
+			}
+		}
+
+		Dictionary<string, List<XmlElement>> found = createOnly
+			? new Dictionary<string, List<XmlElement>>(StringComparer.Ordinal)
+			: LookupByKey(typeName, versionable, keyColumns, wanted, select);
+		HashSet<string> hidden = createOnly
+			? new HashSet<string>(StringComparer.Ordinal)
+			: HiddenKeys(typeName, versionable, keyColumns, wanted.Where(k => !found.ContainsKey(k.Key)).ToDictionary(k => k.Key, k => k.Value, StringComparer.Ordinal));
+
+		LoadFiles(found.Values.SelectMany(list => list).SelectMany(item =>
+			ownColumns.Where(c => (string)c["dataType"] == "file").Select(c => Text(item, (string)c["property"]))));
+
+		bool mayAddUnclassified = createOnly || rowsByKey.Count > 0 ? MayAdd(typeId) : true;
+		List<int> updates = new List<int>();
+		for (int row = 0; row < count; row++)
+		{
+			if (!createOnly && keys[row] == null)
+			{
+				continue;
+			}
+			List<XmlElement> matches = null;
+			if (!createOnly)
+			{
+				found.TryGetValue(keys[row], out matches);
+			}
+			if (matches != null && matches.Count > 1)
+			{
+				Problem(row, null, true, "KEY_AMBIGUOUS", matches.Count + " existing items have this key, so the row cannot be matched to one of them.");
+				continue;
+			}
+			if (matches != null && matches.Count == 1)
+			{
+				existing[row] = matches[0];
+				configIdCache[matches[0].GetAttribute("id")] = Text(matches[0], "config_id");
+				if (matches[0].GetAttribute("discover_only") == "1")
+				{
+					Problem(row, null, true, "ITEM_NO_ACCESS", "An item with this key exists, but you have no access to read it, so it cannot be updated.");
+					continue;
+				}
+				Compare(row, ownColumns.Where(c => !(bool)c["isKey"]));
+				CheckDependentValues(row);
+				actions[row] = changes[row].Count > 0 ? "update" : "none";
+				if (actions[row] == "update")
+				{
+					updates.Add(row);
+				}
+				continue;
+			}
+
+			if (!createOnly && hidden.Contains(keys[row]))
+			{
+				Problem(row, null, true, "KEY_EXISTS_HIDDEN", "An item with this key already exists, but you can't see it.");
+				continue;
+			}
+
+			// A new item.
+			SettlePending(row);
+			CheckDependentValues(row);
+			CheckNewRow(row);
+			string classification = classColumn == null ? "" : FinalValue(row, classColumn);
+			if (classification.Length == 0 && !mayAddUnclassified && (classColumn == null || !failedColumns[row].Contains((string)classColumn["id"])))
+			{
+				Problem(row, null, true, "NO_ADD_PERMISSION", classPaths != null && classPaths.Count > 0
+					? "You may not create a " + (string)sheetDef["itemType"]["label"] + " without a class. Pick a class, or ask an administrator."
+					: "You have no permission to create a " + (string)sheetDef["itemType"]["label"] + ".");
+			}
+			if (modifiedOn[row].Length > 0)
+			{
+				Problem(row, null, false, createOnly ? "CREATE_ONLY_DUPLICATE" : "EXPORTED_ROW_IS_NEW", createOnly
+					? "This row was pre-filled from an existing item. This ItemType has no Unique properties, so the row creates a new item and leaves the existing one as it is."
+					: "This row was pre-filled from an existing item, but no item has this key now. The row creates a new item; it does not rename the one it came from.");
+			}
+			actions[row] = "new";
+		}
+
+		// An update needs the item to be free and the caller to be allowed to change it.
+		LoadCanUpdate(typeName, updates.Where(r => errorCount[r] == 0).Select(r => existing[r].GetAttribute("id")));
+		foreach (int row in updates.Where(r => errorCount[r] == 0))
+		{
+			string lockedBy = Text(existing[row], "locked_by_id");
+			if (lockedBy.Length > 0 && lockedBy != userId)
+			{
+				Problem(row, null, true, "LOCKED", "The item is locked by " + LockedByName(existing[row]) + ", so it cannot be updated.");
+			}
+			else if (!canUpdateCache[existing[row].GetAttribute("id")])
+			{
+				Problem(row, null, true, "NO_UPDATE_PERMISSION", "You have no permission to update this item in its current state.");
+			}
+			else if (modifiedOn[row].Length > 0 && modifiedOn[row] != Text(existing[row], "modified_on"))
+			{
+				Problem(row, null, false, "CHANGED_SINCE_EXPORT",
+					"The item was changed in Aras after the workbook was generated. Check the old values of the changed cells before importing.");
+			}
+		}
+
+		mainRowByKey[sheetIndex] = rowsByKey.ToDictionary(k => k.Key, k => k.Value[0], StringComparer.Ordinal);
+		mainRowNumbers[sheetIndex] = rowNumbers;
+		mainRowItems[sheetIndex] = existing;
+		mainRowFailed[sheetIndex] = Enumerable.Range(0, count).Select(r => errorCount[r] > 0).ToArray();
+	}
+
+	// -- A relationship sheet -------------------------------------------------------------
+
+	void MatchRelationshipRows()
+	{
+		string relationshipId = (string)sheetDef["relationshipType"]["id"];
+		bool relatedRequired = (bool)sheetDef["relationshipType"]["relatedRequired"];
+		Newtonsoft.Json.Linq.JObject relatedType = sheetDef["relationshipType"]["relatedItemType"] as Newtonsoft.Json.Linq.JObject;
+		bool relatedVersionable = relatedType != null && (bool)relatedType["isVersionable"];
+		// The related item can be one that a row of a main sheet creates: the main sheet of the
+		// related ItemType, when that is a target of the job.
+		bool relatedIsMainType = relatedType != null && relatedSheet >= 0;
+		Dictionary<string, int> parentRowByKey = mainRowByKey[parentSheet];
+		int[] parentRowNumbers = mainRowNumbers[parentSheet];
+		bool[] parentRowFailed = mainRowFailed[parentSheet];
+		XmlElement[] parentRowItems = mainRowItems[parentSheet];
+		Dictionary<string, int> relatedRowByKey = relatedIsMainType ? mainRowByKey[relatedSheet] : new Dictionary<string, int>(StringComparer.Ordinal);
+		int[] relatedRowNumbers = relatedIsMainType ? mainRowNumbers[relatedSheet] : new int[0];
+		bool[] relatedRowFailed = relatedIsMainType ? mainRowFailed[relatedSheet] : new bool[0];
+		XmlElement[] relatedRowItems = relatedIsMainType ? mainRowItems[relatedSheet] : new XmlElement[0];
+		bool relatedInMatchKey = relatedKeyColumns.Any(c => (bool)c["isMatchKey"]);
+		// A relationship to File: the related item is a file, named by its file name.
+		bool relatedIsFile = relatedKeyColumns.Count > 0 && relatedKeyColumns.All(c => (string)c["dataType"] == "file");
+		List<Newtonsoft.Json.Linq.JObject> matchColumns = ownColumns.Where(c => (bool)c["isMatchKey"]).ToList();
+		// A relationship that takes its access from its parent can be added and changed
+		// by whoever may update the parent.
+		bool accessFromParent = itemTypes.ContainsKey(typeId) && Flag(itemTypes[typeId], "use_src_access");
+		string mainTypeName = (string)mainSheetDef["itemType"]["name"];
+		string mainTypeLabel = (string)mainSheetDef["itemType"]["label"];
+
+		// The parent of every row: a row of the main sheet, or an existing item.
+		string[] parentKeys = new string[count];
+		int[] parentRows = new int[count];
+		XmlElement[] parentItems = new XmlElement[count];
+		bool[] parentKnown = new bool[count];
+		Dictionary<string, string[]> otherParents = new Dictionary<string, string[]>(StringComparer.Ordinal);
+		for (int row = 0; row < count; row++)
+		{
+			parentRows[row] = -1;
+			if (issues[row].Any(i => (string)i["code"] == "ROW_INVALID"))
+			{
+				continue;
+			}
+			parentKeys[row] = KeyOf(row, parentKeyColumns, true);
+			if (parentKeys[row] != null && !parentRowByKey.ContainsKey(parentKeys[row]) && !otherParents.ContainsKey(parentKeys[row]))
+			{
+				otherParents[parentKeys[row]] = parentKeyColumns.Select(c => values[row][(string)c["id"]]).ToArray();
+			}
+		}
+		Dictionary<string, List<XmlElement>> foundParents = LookupByKey(
+			mainTypeName, (bool)mainSheetDef["itemType"]["isVersionable"], parentKeyColumns, otherParents, "id,keyed_name,config_id,locked_by_id");
+		for (int row = 0; row < count; row++)
+		{
+			if (parentKeys[row] == null)
+			{
+				continue;
+			}
+			int mainRow;
+			List<XmlElement> matches;
+			if (parentRowByKey.TryGetValue(parentKeys[row], out mainRow))
+			{
+				parentRows[row] = mainRow;
+				parentItems[row] = parentRowItems[mainRow];
+				if (parentRowFailed[mainRow])
+				{
+					Problem(row, null, true, "PARENT_HAS_ERROR", "The parent (row " + parentRowNumbers[mainRow] + " of " + MainSheetText(parentSheet) + ") has an error, so this row cannot be imported.");
+				}
+				else
+				{
+					parentKnown[row] = true;
+				}
+			}
+			else if (!foundParents.TryGetValue(parentKeys[row], out matches) || matches.Count == 0)
+			{
+				Problem(row, null, true, "PARENT_NOT_FOUND", "No " + mainTypeLabel + " with this key is on " + MainSheetText(parentSheet) + " or exists in Aras, so the row has no parent.");
+			}
+			else if (matches.Count > 1)
+			{
+				Problem(row, null, true, "KEY_AMBIGUOUS", matches.Count + " existing items have the key of the parent, so the row cannot be linked to one of them.");
+			}
+			else if (matches[0].GetAttribute("discover_only") == "1")
+			{
+				Problem(row, null, true, "ITEM_NO_ACCESS", "The parent exists, but you have no access to read it.");
+			}
+			else
+			{
+				parentItems[row] = matches[0];
+				parentKnown[row] = true;
+				configIdCache[matches[0].GetAttribute("id")] = Text(matches[0], "config_id");
+			}
+			Newtonsoft.Json.Linq.JObject parent = new Newtonsoft.Json.Linq.JObject();
+			parent.Add("sheet", parentSheet);
+			parent.Add("row", parentRows[row] < 0 ? null : (int?)parentRowNumbers[parentRows[row]]);
+			parent.Add("id", parentItems[row] == null ? null : parentItems[row].GetAttribute("id"));
+			parent.Add("keyedName", parentItems[row] == null ? null : KeyedName(parentItems[row]));
+			parentOf[row] = parent;
+		}
+
+		// The related item of every row, by its Unique key.
+		string[] relatedKeys = new string[count];
+		bool[] relatedBlank = new bool[count];
+		XmlElement[] relatedItems = new XmlElement[count];
+		string[] relatedFileNames = new string[count];
+		// A related item that a row of the main sheet creates: the index of that row, else -1.
+		int[] relatedNewRows = Enumerable.Repeat(-1, count).ToArray();
+		Dictionary<string, string[]> wantedRelated = new Dictionary<string, string[]>(StringComparer.Ordinal);
+		for (int row = 0; row < count; row++)
+		{
+			if (relatedKeyColumns.Count == 0 || issues[row].Any(i => (string)i["code"] == "ROW_INVALID"))
+			{
+				relatedBlank[row] = true;
+				continue;
+			}
+			bool anyCell = relatedKeyColumns.Any(c => values[row].ContainsKey((string)c["id"]) || failedColumns[row].Contains((string)c["id"]));
+			if (!anyCell)
+			{
+				relatedBlank[row] = true;
+				continue;
+			}
+			relatedKeys[row] = KeyOf(row, relatedKeyColumns, true);
+			if (relatedKeys[row] != null && !wantedRelated.ContainsKey(relatedKeys[row]))
+			{
+				wantedRelated[relatedKeys[row]] = relatedKeyColumns.Select(c => values[row][(string)c["id"]]).ToArray();
+			}
+		}
+		Dictionary<string, List<XmlElement>> foundRelated = relatedType == null || relatedIsFile
+			? new Dictionary<string, List<XmlElement>>(StringComparer.Ordinal)
+			: LookupByKey((string)relatedType["name"], relatedVersionable, relatedKeyColumns, wantedRelated, "id,keyed_name,config_id");
+		for (int row = 0; row < count; row++)
+		{
+			if (relatedKeys[row] == null)
+			{
+				continue;
+			}
+			if (relatedIsFile)
+			{
+				relatedFileNames[row] = values[row][(string)relatedKeyColumns[0]["id"]];
+				continue;
+			}
+			List<XmlElement> matches;
+			int mainRow;
+			if (foundRelated.TryGetValue(relatedKeys[row], out matches) && matches.Count == 1)
+			{
+				relatedItems[row] = matches[0];
+				configIdCache[matches[0].GetAttribute("id")] = Text(matches[0], "config_id");
+				Newtonsoft.Json.Linq.JObject related = new Newtonsoft.Json.Linq.JObject();
+				related.Add("id", matches[0].GetAttribute("id"));
+				related.Add("keyedName", KeyedName(matches[0]));
+				relatedOf[row] = related;
+			}
+			else if (matches != null && matches.Count > 1)
+			{
+				Problem(row, null, true, "KEY_AMBIGUOUS", matches.Count + " existing items have the key of the related item, so the row cannot be linked to one of them.");
+			}
+			else if (relatedIsMainType && relatedRowByKey.TryGetValue(relatedKeys[row], out mainRow) && relatedRowFailed[mainRow])
+			{
+				// The row of the main sheet is no new item either: it has an error of its own.
+				Problem(row, null, true, "RELATED_HAS_ERROR",
+					"The related " + (string)relatedType["label"] + " is row " + relatedRowNumbers[mainRow] +
+					" of " + MainSheetText(relatedSheet) + ", which has an error, so this row cannot be imported.");
+			}
+			else if (relatedIsMainType && relatedRowByKey.TryGetValue(relatedKeys[row], out mainRow) && relatedRowItems[mainRow] == null)
+			{
+				// The related item is created by a row of its main sheet: the import writes that
+				// row first, in the same batch or an earlier one, and the row points at it.
+				relatedNewRows[row] = mainRow;
+				Newtonsoft.Json.Linq.JObject related = new Newtonsoft.Json.Linq.JObject();
+				related.Add("sheet", relatedSheet);
+				related.Add("row", relatedRowNumbers[mainRow]);
+				related.Add("id", null);
+				related.Add("keyedName", string.Join(" / ", relatedKeyColumns.Select(c => values[row][(string)c["id"]])));
+				relatedOf[row] = related;
+			}
+			else
+			{
+				Problem(row, null, true, "RELATED_NOT_FOUND", "No " + (string)relatedType["label"] + " with this key was found, so the row has no related item.");
+			}
+		}
+
+		// The related item of a row as rows are compared: the id its generations share, or the
+		// row of the main sheet that creates it. Null when the row names none that is known.
+		string RelatedName(int row)
+		{
+			if (relatedIsFile)
+			{
+				return relatedFileNames[row] == null ? null : FileTokenPrefix + MatchText(relatedFileNames[row]);
+			}
+			return relatedItems[row] != null ? SameItem(relatedItems[row].GetAttribute("id"))
+				: relatedNewRows[row] >= 0 ? NewRowName(relatedSheet, relatedRowNumbers[relatedNewRows[row]])
+				: null;
+		}
+
+		// The relationship rows the parents have now.
+		List<string> parentIds =Enumerable.Range(0, count).Where(r => parentItems[r] != null).Select(r => parentItems[r].GetAttribute("id")).Distinct().ToList();
+		Dictionary<string, List<XmlElement>> existingRows = new Dictionary<string, List<XmlElement>>(StringComparer.Ordinal);
+		for (int start = 0; start < parentIds.Count; start += IdChunk)
+		{
+			foreach (XmlElement item in Query(
+				"<Item type=\"" + Xml(typeName) + "\" action=\"get\" select=\"" + select + "\" related_expand=\"0\">" +
+				(versionable ? "<is_current>1</is_current>" : "") +
+				"<source_id condition=\"in\">" + IdList(parentIds.Skip(start).Take(IdChunk)) + "</source_id></Item>"))
+			{
+				string parentId = Text(item, "source_id");
+				if (!existingRows.ContainsKey(parentId))
+				{
+					existingRows[parentId] = new List<XmlElement>();
+				}
+				existingRows[parentId].Add(item);
+			}
+		}
+		// The Files the existing rows point at: their related File, and their own file properties.
+		List<string> fileProperties = ownColumns.Where(c => (string)c["dataType"] == "file").Select(c => (string)c["property"]).ToList();
+		if (relatedIsFile)
+		{
+			fileProperties.Add("related_id");
+		}
+		LoadFiles(existingRows.Values.SelectMany(list => list).SelectMany(item => fileProperties.Select(name => Text(item, name))));
+		if (relatedVersionable)
+		{
+			// A relationship row can point at an older generation of its related item. The
+			// item is the same one, so rows are compared by the id all generations share.
+			LoadConfigIds((string)relatedType["name"], existingRows.Values.SelectMany(list => list).Select(item => Text(item, "related_id")));
+		}
+
+		string MatchKeyOf(int row)
+		{
+			if (matchColumns.Any(c => failedColumns[row].Contains((string)c["id"]) || pending[row].ContainsKey((string)c["id"])))
+			{
+				return null;
+			}
+			string related = relatedInMatchKey ? RelatedName(row) ?? "" : "";
+			return related + KeySeparator + string.Join(KeySeparator, matchColumns.Select(c =>
+			{
+				string value;
+				return values[row].TryGetValue((string)c["id"], out value) ? Canon(c, value, true) : "";
+			}));
+		}
+
+		string MatchKeyOfItem(XmlElement item)
+		{
+			string related = !relatedInMatchKey ? "" : relatedIsFile ? FileTokenPrefix + MatchText(FileNameOfItem(Text(item, "related_id"))) : SameItem(Text(item, "related_id"));
+			return related + KeySeparator + string.Join(KeySeparator, matchColumns.Select(c => Canon(c, Text(item, (string)c["property"]), true)));
+		}
+
+		// Match each row against the rows of its parent.
+		Dictionary<string, Dictionary<string, List<XmlElement>>> rowsByMatchKey = new Dictionary<string, Dictionary<string, List<XmlElement>>>(StringComparer.Ordinal);
+		Dictionary<string, List<int>> sameMatchKey = new Dictionary<string, List<int>>(StringComparer.Ordinal);
+		HashSet<string> matchedIds = new HashSet<string>(StringComparer.Ordinal);
+		bool[] alwaysNew = new bool[count];
+		for (int row = 0; row < count; row++)
+		{
+			if (!parentKnown[row] || relatedKeyColumns.Count > 0 && !relatedBlank[row] && RelatedName(row) == null)
+			{
+				continue;
+			}
+			if (relatedBlank[row] && relatedType != null && relatedRequired && (relatedKeyColumns.Count == 0 || relatedInMatchKey))
+			{
+				Problem(row, relatedKeyColumns.Count == 0 ? null : (string)relatedKeyColumns[0]["id"], true, "RELATED_REQUIRED", relatedKeyColumns.Count == 0
+					? "This relationship needs a related " + (string)relatedType["label"] + ", and that ItemType has no Unique properties to name one by. Its rows cannot be imported."
+					: "This relationship needs a related " + (string)relatedType["label"] + ". Fill in its key.");
+				continue;
+			}
+			// A row that cannot name an existing relationship row can only create one.
+			alwaysNew[row] = createOnly || relatedInMatchKey && relatedBlank[row];
+			if (alwaysNew[row])
+			{
+				continue;
+			}
+			string matchKey = MatchKeyOf(row);
+			if (matchKey == null)
+			{
+				continue;
+			}
+			string within = parentKeys[row] + KeySeparator + matchKey;
+			if (!sameMatchKey.ContainsKey(within))
+			{
+				sameMatchKey[within] = new List<int>();
+			}
+			sameMatchKey[within].Add(row);
+			if (parentItems[row] == null)
+			{
+				continue;
+			}
+			string parentId = parentItems[row].GetAttribute("id");
+			Dictionary<string, List<XmlElement>> ofParent;
+			if (!rowsByMatchKey.TryGetValue(parentId, out ofParent))
+			{
+				ofParent = new Dictionary<string, List<XmlElement>>(StringComparer.Ordinal);
+				List<XmlElement> items;
+				if (existingRows.TryGetValue(parentId, out items))
+				{
+					foreach (XmlElement item in items)
+					{
+						string key = MatchKeyOfItem(item);
+						if (!ofParent.ContainsKey(key))
+						{
+							ofParent[key] = new List<XmlElement>();
+						}
+						ofParent[key].Add(item);
+					}
+				}
+				rowsByMatchKey[parentId] = ofParent;
+			}
+			List<XmlElement> matches;
+			if (!ofParent.TryGetValue(matchKey, out matches))
+			{
+				continue;
+			}
+			if (matches.Count > 1)
+			{
+				Problem(row, null, true, "MATCH_AMBIGUOUS",
+					matches.Count + " existing rows of this parent have this match key, so the row cannot be matched to one of them. Generate the workbook with a match key that tells these rows apart.");
+				continue;
+			}
+			existing[row] = matches[0];
+		}
+		foreach (KeyValuePair<string, List<int>> same in sameMatchKey.Where(k => k.Value.Count > 1))
+		{
+			// Rows that already say the match key is ambiguous in Aras need no second error.
+			foreach (int row in same.Value.Where(r => !issues[r].Any(i => (string)i["code"] == "MATCH_AMBIGUOUS")))
+			{
+				Problem(row, null, true, "DUPLICATE_MATCH_KEY",
+					"Rows " + JoinNumbers(same.Value.Select(r => rowNumbers[r])) + " have the same parent and the same match key. Each row must stand for a different relationship row.");
+			}
+		}
+
+		// What each row does.
+		bool mayAdd = accessFromParent || MayAdd(typeId);
+		for (int row = 0; row < count; row++)
+		{
+			if (!parentKnown[row] || errorCount[row] > 0 && existing[row] == null && issues[row].Any(i => (string)i["column"] == null))
+			{
+				continue;
+			}
+			if (deleteRows[row])
+			{
+				// The delete marker: the row deletes the existing row it matches, and nothing else.
+				if (existing[row] == null)
+				{
+					Problem(row, null, true, "DELETE_NOT_FOUND", "No existing row of this parent matches this row, so it has nothing to delete.");
+					continue;
+				}
+				matchedIds.Add(existing[row].GetAttribute("id"));
+				pending[row].Clear();
+				actions[row] = "delete";
+				continue;
+			}
+			if (existing[row] != null)
+			{
+				matchedIds.Add(existing[row].GetAttribute("id"));
+				Compare(row, ownColumns.Where(c => !(bool)c["isMatchKey"]));
+				if (relatedIsFile && relatedFileNames[row] != null)
+				{
+					// The file of the row: the one it has, or a picked file with other content or name.
+					string fileColumn = (string)relatedKeyColumns[0]["id"];
+					string currentId = Text(existing[row], "related_id");
+					XmlElement currentFile = FileOf(currentId);
+					string currentName = FileNameOfItem(currentId);
+					if (relatedFileTokens[row] == null)
+					{
+						if (!failedColumns[row].Contains(fileColumn) && !string.Equals(currentName, relatedFileNames[row], StringComparison.OrdinalIgnoreCase))
+						{
+							Problem(row, fileColumn, true, "FILE_NOT_PICKED", Labelled(relatedKeyColumns[0], NotPickedText(relatedFileNames[row])));
+						}
+					}
+					else if (!SameFile(relatedFileTokens[row], currentFile))
+					{
+						changes[row][RelatedIdColumn] = new string[] { relatedFileTokens[row], TokenName(relatedFileTokens[row]), currentId, currentName };
+					}
+				}
+				else if (!relatedInMatchKey && RelatedName(row) != null && RelatedName(row) != SameItem(Text(existing[row], "related_id")))
+				{
+					// A related item a row of a main sheet creates has no id yet: the value names
+					// that row, and the import puts in the id the item gets.
+					changes[row][RelatedIdColumn] = new string[]
+					{
+						relatedItems[row] != null ? relatedItems[row].GetAttribute("id") : NewRowName(relatedSheet, relatedRowNumbers[relatedNewRows[row]]),
+						relatedItems[row] != null ? KeyedName(relatedItems[row]) : (string)relatedOf[row]["keyedName"],
+						Text(existing[row], "related_id"), Attribute(existing[row], "related_id", "keyed_name")
+					};
+				}
+				CheckDependentValues(row);
+				actions[row] = changes[row].Count > 0 ? "update" : "none";
+				if (actions[row] == "update" && modifiedOn[row].Length > 0 && modifiedOn[row] != Text(existing[row], "modified_on"))
+				{
+					Problem(row, null, false, "CHANGED_SINCE_EXPORT",
+						"The relationship row was changed in Aras after the workbook was generated. Check the old values of the changed cells before importing.");
+				}
+				continue;
+			}
+			SettlePending(row);
+			// A new line of an indented BOM without a Sequence: numbered in sheet order, after the lines the parent has.
+			int sequenceIfNew;
+			if (string.Equals((string)sheetDef["relationshipType"]["id"], PartBomRelationshipId, StringComparison.OrdinalIgnoreCase)
+				&& columnById.ContainsKey(SequenceColumn) && !values[row].ContainsKey(SequenceColumn) && !failedColumns[row].Contains(SequenceColumn)
+				&& int.TryParse(Str(rows[row], "sequenceIfNew") ?? "", NumberStyles.Integer, CultureInfo.InvariantCulture, out sequenceIfNew) && sequenceIfNew > 0)
+			{
+				int highestSequence = 0;
+				List<XmlElement> linesOfParent;
+				if (parentItems[row] != null && existingRows.TryGetValue(parentItems[row].GetAttribute("id"), out linesOfParent))
+				{
+					foreach (XmlElement lineOfParent in linesOfParent)
+					{
+						int lineSequence;
+						if (int.TryParse(Text(lineOfParent, SequenceColumn), NumberStyles.Integer, CultureInfo.InvariantCulture, out lineSequence))
+						{
+							highestSequence = Math.Max(highestSequence, lineSequence);
+						}
+					}
+				}
+				string newSequence = (highestSequence + sequenceIfNew).ToString(CultureInfo.InvariantCulture);
+				values[row][SequenceColumn] = newSequence;
+				displays[row][SequenceColumn] = newSequence;
+			}
+			CheckDependentValues(row);
+			CheckNewRow(row);
+			if (relatedIsFile && relatedFileNames[row] != null && relatedFileTokens[row] == null && !failedColumns[row].Contains((string)relatedKeyColumns[0]["id"]))
+			{
+				Problem(row, (string)relatedKeyColumns[0]["id"], true, "FILE_NOT_PICKED", Labelled(relatedKeyColumns[0], NotPickedText(relatedFileNames[row]) + " A new row needs its file."));
+			}
+			if (!mayAdd)
+			{
+				Problem(row, null, true, "NO_ADD_PERMISSION", "You have no permission to add a " + (string)sheetDef["itemType"]["label"] + " row.");
+			}
+			if (modifiedOn[row].Length > 0)
+			{
+				Problem(row, null, false, alwaysNew[row] ? "CREATE_ONLY_DUPLICATE" : "EXPORTED_ROW_IS_NEW", alwaysNew[row]
+					? "This row was pre-filled from an existing relationship row, but rows of this kind cannot be matched to an existing row. Importing it adds a second row."
+					: "This row was pre-filled from an existing relationship row, but no row has this match key now. A new row is added; the row it came from stays as it is.");
+			}
+			actions[row] = "new";
+		}
+
+		// Adding or changing a relationship row changes the parent, so the parent has to
+		// be free and the caller allowed to update it. So has the row itself, when it has
+		// access rules of its own.
+		List<int> writing = Enumerable.Range(0, count).Where(r => errorCount[r] == 0 && (actions[r] == "new" || actions[r] == "update" || actions[r] == "delete")).ToList();
+		LoadCanUpdate(mainTypeName, writing.Where(r => parentItems[r] != null).Select(r => parentItems[r].GetAttribute("id")));
+		if (!accessFromParent)
+		{
+			LoadCanUpdate(typeName, writing.Where(r => existing[r] != null).Select(r => existing[r].GetAttribute("id")));
+		}
+		foreach (int row in writing)
+		{
+			XmlElement parent = parentItems[row];
+			if (parent != null && Text(parent, "locked_by_id").Length > 0 && Text(parent, "locked_by_id") != userId)
+			{
+				Problem(row, null, true, "PARENT_LOCKED", "The parent is locked by " + LockedByName(parent) + ", so its relationship rows cannot be changed.");
+			}
+			else if (parent != null && !canUpdateCache[parent.GetAttribute("id")])
+			{
+				Problem(row, null, true, "PARENT_NO_UPDATE_PERMISSION", "You have no permission to update the parent in its current state, so its relationship rows cannot be changed.");
+			}
+			else if (existing[row] != null && Text(existing[row], "locked_by_id").Length > 0 && Text(existing[row], "locked_by_id") != userId)
+			{
+				Problem(row, null, true, "LOCKED", "The relationship row is locked by " + LockedByName(existing[row]) + ", so it cannot be updated.");
+			}
+			else if (existing[row] != null && !accessFromParent && !canUpdateCache[existing[row].GetAttribute("id")])
+			{
+				Problem(row, null, true, "NO_UPDATE_PERMISSION", "You have no permission to update this relationship row.");
+			}
+		}
+
+		// The same related item more than once under one parent is allowed, and worth a
+		// look: a row that adds such a repeat is marked. A row with an error changes
+		// nothing, so it counts as the row Aras has, or not at all.
+		Dictionary<string, List<int>> sameChild = new Dictionary<string, List<int>>(StringComparer.Ordinal);
+		Dictionary<string, int> untouchedChildren = new Dictionary<string, int>(StringComparer.Ordinal);
+		// Files are told apart by name instead: two rows with one name have one match key.
+		for (int row = 0; row < count && !relatedIsFile; row++)
+		{
+			bool writes = errorCount[row] == 0 && actions[row] != null;
+			string related = writes && RelatedName(row) != null ? RelatedName(row)
+				: existing[row] != null ? Text(existing[row], "related_id")
+				: "";
+			if (related.Length == 0 || parentKeys[row] == null)
+			{
+				continue;
+			}
+			related = SameItem(related);
+			string pair = parentKeys[row] + KeySeparator + related;
+			if (!sameChild.ContainsKey(pair))
+			{
+				sameChild[pair] = new List<int>();
+				untouchedChildren[pair] = parentItems[row] == null || !existingRows.ContainsKey(parentItems[row].GetAttribute("id")) ? 0
+					: existingRows[parentItems[row].GetAttribute("id")].Count(item => !matchedIds.Contains(item.GetAttribute("id")) && SameItem(Text(item, "related_id")) == related);
+			}
+			sameChild[pair].Add(row);
+		}
+		foreach (KeyValuePair<string, List<int>> pair in sameChild)
+		{
+			if (pair.Value.Count + untouchedChildren[pair.Key] < 2)
+			{
+				continue;
+			}
+			foreach (int row in pair.Value.Where(r => errorCount[r] == 0 && (actions[r] == "new" || changes[r].ContainsKey(RelatedIdColumn))))
+			{
+				Problem(row, null, false, "REPEATED_CHILD", pair.Value.Count > 1
+					? "The same related item is under this parent more than once (rows " + JoinNumbers(pair.Value.Select(r => rowNumbers[r])) + "). That is allowed; check that it is meant."
+					: "The parent already has a row for this related item, and this row adds another. That is allowed; check that it is meant.");
+			}
+		}
+
+		// The related file of each row: the one it has, or the picked file it links.
+		for (int row = 0; row < count && relatedIsFile; row++)
+		{
+			string currentId = existing[row] == null ? null : Text(existing[row], "related_id");
+			bool linksPicked = relatedFileTokens[row] != null && (existing[row] == null || changes[row].ContainsKey(RelatedIdColumn));
+			if (relatedFileNames[row] == null || !linksPicked && string.IsNullOrEmpty(currentId))
+			{
+				continue;
+			}
+			Newtonsoft.Json.Linq.JObject related = new Newtonsoft.Json.Linq.JObject();
+			related.Add("id", linksPicked ? null : currentId);
+			related.Add("keyedName", linksPicked ? TokenName(relatedFileTokens[row]) : FileNameOfItem(currentId));
+			related.Add("file", linksPicked ? relatedFileTokens[row] : null);
+			relatedOf[row] = related;
+		}
+
+		CheckOwnUniqueKey(parentKeys, parentItems, relatedItems, relatedNewRows, existingRows, matchedIds);
+
+		// The parents named on this sheet, and how much of what they have stays as it is.
+		parentsResult = new Newtonsoft.Json.Linq.JArray();
+		HashSet<string> listed = new HashSet<string>(StringComparer.Ordinal);
+		for (int row = 0; row < count; row++)
+		{
+			if (parentOf[row] == null || !parentKnown[row] || !listed.Add(parentKeys[row]))
+			{
+				continue;
+			}
+			List<XmlElement> items = null;
+			if (parentItems[row] != null)
+			{
+				existingRows.TryGetValue(parentItems[row].GetAttribute("id"), out items);
+			}
+			Newtonsoft.Json.Linq.JObject parent = (Newtonsoft.Json.Linq.JObject)parentOf[row].DeepClone();
+			parent.Add("existing", items == null ? 0 : items.Count);
+			parent.Add("untouched", items == null ? 0 : items.Count(item => !matchedIds.Contains(item.GetAttribute("id"))));
+			parentsResult.Add(parent);
+		}
+	}
+
+	// A relationship ItemType can have Unique properties of its own. They are not the
+	// match key, but the database enforces them, so rows that would break them are
+	// reported here. When the parent is one of them the rule holds under one parent, and
+	// the parent's existing rows are compared. Otherwise it holds across all parents: the
+	// rows of the sheet are compared with each other and looked up in Aras, among the
+	// rows of current parents. A row the caller cannot read is left to the database.
+	void CheckOwnUniqueKey(string[] parentKeys, XmlElement[] parentItems, XmlElement[] relatedItems, int[] relatedNewRows, Dictionary<string, List<XmlElement>> existingRows, HashSet<string> matchedIds)
+	{
+		Dictionary<string, string> uniqueDefaults = UniqueProperties(sheetDef);
+		bool perParent = uniqueDefaults.ContainsKey("source_id");
+		List<string> others = uniqueDefaults.Keys.Where(name => name != "source_id").ToList();
+		if (others.Count == 0)
+		{
+			return;
+		}
+		Dictionary<string, Newtonsoft.Json.Linq.JObject> columnByProperty = ownColumns.ToDictionary(c => (string)c["property"], StringComparer.Ordinal);
+
+		// The value a row leaves in a Unique property, as stored.
+		string RowValue(int row, string name)
+		{
+			if (name == "related_id")
+			{
+				return relatedItems[row] != null ? relatedItems[row].GetAttribute("id")
+					: relatedNewRows[row] >= 0 ? NewRowName(relatedSheet, mainRowNumbers[relatedSheet][relatedNewRows[row]])
+					: existing[row] == null ? "" : Text(existing[row], name);
+			}
+			Newtonsoft.Json.Linq.JObject column;
+			if (columnByProperty.TryGetValue(name, out column))
+			{
+				string value = FinalValue(row, column);
+				return value.Length == 0 && existing[row] == null ? (string)column["defaultValue"] ?? "" : value;
+			}
+			return existing[row] == null ? uniqueDefaults[name] : Text(existing[row], name);
+		}
+
+		// Values in the form they are compared in. Under one parent a related item is the
+		// same item in all its generations; across parents the database compares ids.
+		string Canonical(string name, string value)
+		{
+			if (name == "related_id")
+			{
+				return perParent ? SameItem(value) : value;
+			}
+			Newtonsoft.Json.Linq.JObject column;
+			return columnByProperty.TryGetValue(name, out column) ? Canon(column, value, true) : value.Trim().ToUpperInvariant();
+		}
+
+		string KeyOfRow(int row)
+		{
+			return string.Join(KeySeparator, others.Select(name => Canonical(name, RowValue(row, name))));
+		}
+
+		string KeyOfItem(XmlElement item)
+		{
+			return string.Join(KeySeparator, others.Select(name => Canonical(name, Text(item, name))));
+		}
+
+		// A row that sets the values: a new row, or one that changes one of them. A row that
+		// keeps the values it has is not the one that breaks the rule.
+		bool Writes(int row)
+		{
+			return actions[row] == "new" || actions[row] == "update" && others.Any(name =>
+				changes[row].ContainsKey(name == "related_id" ? RelatedIdColumn : columnByProperty.ContainsKey(name) ? (string)columnByProperty[name]["id"] : name));
+		}
+
+		// The rows of the sheet by their values, under one parent or across all of them.
+		Dictionary<string, List<int>> rowsByUniqueKey = new Dictionary<string, List<int>>(StringComparer.Ordinal);
+		Dictionary<string, string> keyOfGroup = new Dictionary<string, string>(StringComparer.Ordinal);
+		for (int row = 0; row < count; row++)
+		{
+			if (errorCount[row] > 0 || actions[row] == null)
+			{
+				continue;
+			}
+			string key = KeyOfRow(row);
+			string group = perParent ? parentKeys[row] + KeySeparator + key : key;
+			if (!rowsByUniqueKey.ContainsKey(group))
+			{
+				rowsByUniqueKey[group] = new List<int>();
+				keyOfGroup[group] = key;
+			}
+			rowsByUniqueKey[group].Add(row);
+		}
+
+		// The rows Aras has with the same values, which no row of the sheet stands for.
+		Dictionary<string, List<XmlElement>> inAras = new Dictionary<string, List<XmlElement>>(StringComparer.Ordinal);
+		if (perParent)
+		{
+			foreach (KeyValuePair<string, List<int>> same in rowsByUniqueKey)
+			{
+				List<XmlElement> items = null;
+				int first = same.Value[0];
+				if (parentItems[first] != null)
+				{
+					existingRows.TryGetValue(parentItems[first].GetAttribute("id"), out items);
+				}
+				inAras[same.Key] = items == null ? new List<XmlElement>()
+					: items.Where(item => !matchedIds.Contains(item.GetAttribute("id")) && KeyOfItem(item) == keyOfGroup[same.Key]).ToList();
+			}
+		}
+		else
+		{
+			List<string> wanted = rowsByUniqueKey.Where(same => same.Value.Any(Writes)).Select(same => same.Key).ToList();
+			string mainTypeName = (string)mainSheetDef["itemType"]["name"];
+			string currentParents = (bool)mainSheetDef["itemType"]["isVersionable"]
+				? "<source_id><Item type=\"" + Xml(mainTypeName) + "\" action=\"get\"><is_current>1</is_current></Item></source_id>" : "";
+			for (int start = 0; start < wanted.Count; start += KeyChunk)
+			{
+				StringBuilder aml = new StringBuilder();
+				aml.Append("<Item type=\"").Append(Xml(typeName)).Append("\" action=\"get\" select=\"").Append(select).Append("\" related_expand=\"0\">")
+					.Append(versionable ? "<is_current>1</is_current>" : "").Append(currentParents).Append("<or>");
+				foreach (string group in wanted.Skip(start).Take(KeyChunk))
+				{
+					int first = rowsByUniqueKey[group][0];
+					aml.Append("<and>");
+					foreach (string name in others.Where(n => System.Text.RegularExpressions.Regex.IsMatch(n, "^[A-Za-z0-9_]+$")))
+					{
+						string value = RowValue(first, name);
+						aml.Append(value.Length == 0 ? "<" + name + " condition=\"is null\"/>" : "<" + name + ">" + Xml(value) + "</" + name + ">");
+					}
+					aml.Append("</and>");
+				}
+				aml.Append("</or></Item>");
+				foreach (XmlElement item in Query(aml.ToString()))
+				{
+					if (matchedIds.Contains(item.GetAttribute("id")))
+					{
+						continue;
+					}
+					string key = KeyOfItem(item);
+					if (!inAras.ContainsKey(key))
+					{
+						inAras[key] = new List<XmlElement>();
+					}
+					inAras[key].Add(item);
+				}
+			}
+		}
+
+		string rule = perParent
+			? "Under one parent the values of " + string.Join(", ", others) + " must be unique for " + (string)sheetDef["itemType"]["label"] + " rows"
+			: "The values of " + string.Join(", ", others) + " must be unique for all " + (string)sheetDef["itemType"]["label"] + " rows, whatever their parent";
+		foreach (KeyValuePair<string, List<int>> same in rowsByUniqueKey)
+		{
+			List<XmlElement> found;
+			if (!inAras.TryGetValue(perParent ? same.Key : keyOfGroup[same.Key], out found))
+			{
+				found = new List<XmlElement>();
+			}
+			if (same.Value.Count + found.Count < 2)
+			{
+				continue;
+			}
+			string holder = found.Count == 0 ? null : perParent ? "an existing row of this parent"
+				: "the existing row under " + (Attribute(found[0], "source_id", "keyed_name").Length > 0 ? Attribute(found[0], "source_id", "keyed_name") : "another parent");
+			foreach (int row in same.Value.Where(Writes))
+			{
+				Problem(row, null, true, "UNIQUE_VIOLATION", rule + ", and " +
+					(same.Value.Count > 1 ? "rows " + JoinNumbers(same.Value.Select(r => rowNumbers[r])) + (holder == null ? "" : " and " + holder) + " have the same" : holder + " has the same") + ".");
+			}
+		}
+	}
+
+	// -- Shared by both kinds of sheet ---------------------------------------------------
+
+	// The key a row has in the given key columns, in the form keys are compared in, or
+	// null when the key is incomplete. A blank key cell is reported.
+	string KeyOf(int row, List<Newtonsoft.Json.Linq.JObject> keys, bool report)
+	{
+		bool complete = true;
+		List<string> parts = new List<string>();
+		foreach (Newtonsoft.Json.Linq.JObject column in keys)
+		{
+			string id = (string)column["id"];
+			string value;
+			if (values[row].TryGetValue(id, out value))
+			{
+				parts.Add(Canon(column, value, true));
+				continue;
+			}
+			complete = false;
+			if (report && !failedColumns[row].Contains(id))
+			{
+				string role = (string)column["role"];
+				Problem(row, id, true, "KEY_BLANK", Labelled(column, role == "parentKey" ? "the key of the parent is required on every row."
+					: role == "relatedKey" ? "the key of the related item is incomplete. Fill in every key column, or none of them."
+					: "a key column is required on every row."));
+			}
+		}
+		return complete ? string.Join(KeySeparator, parts) : null;
+	}
+
+	// Decides the values that were refused unless Aras already has them. On a new row
+	// there is nothing to equal, so they are errors.
+	void SettlePending(int row)
+	{
+		foreach (KeyValuePair<string, string[]> refused in pending[row])
+		{
+			Problem(row, refused.Key, true, refused.Value[0], Labelled(columnById[refused.Key], refused.Value[1]));
+		}
+		pending[row].Clear();
+	}
+
+	// Compares the cells of a row with the item it matches and keeps the ones that differ.
+	// A blank cell is not compared: it leaves the value as it is.
+	void Compare(int row, IEnumerable<Newtonsoft.Json.Linq.JObject> compared)
+	{
+		XmlElement item = existing[row];
+		foreach (Newtonsoft.Json.Linq.JObject column in compared)
+		{
+			string id = (string)column["id"];
+			string property = (string)column["property"];
+			string dataType = (string)column["dataType"];
+			string current = Text(item, property);
+			string[] refused;
+			if (dataType == "file")
+			{
+				CompareFile(row, column, item);
+				continue;
+			}
+			if (pending[row].TryGetValue(id, out refused))
+			{
+				// A value that is not in the list or the class tree any more, but is what
+				// the item has: it stays, and is no change.
+				if (Canon(column, refused[2], true) != Canon(column, current, true))
+				{
+					Problem(row, id, true, refused[0], Labelled(column, refused[1]));
+				}
+				continue;
+			}
+			string value;
+			if (cleared[row].Contains(id))
+			{
+				value = "";
+			}
+			else if (!values[row].TryGetValue(id, out value))
+			{
+				continue;
+			}
+			if (Canon(column, value, false) == Canon(column, current, false))
+			{
+				continue;
+			}
+			if (dataType == "item" && value.Length > 0 && current.Length > 0 && SameItemOf(column, value) == SameItemOf(column, current))
+			{
+				// Another generation of the item the property already points at.
+				continue;
+			}
+			string shown;
+			displays[row].TryGetValue(id, out shown);
+			changes[row][id] = new string[] { value, shown, current, dataType == "item" ? Attribute(item, property, "keyed_name") : DisplayOf(column, current) };
+		}
+		pending[row].Clear();
+	}
+
+	// A file cell against the File the item points at. A picked file with the name and the
+	// content of that File is no change, and so is the name of that File when no picked file
+	// has it.
+	void CompareFile(int row, Newtonsoft.Json.Linq.JObject column, XmlElement item)
+	{
+		string id = (string)column["id"];
+		string current = Text(item, (string)column["property"]);
+		XmlElement currentFile = FileOf(current);
+		string currentName = current.Length == 0 ? "" : FileNameOfItem(current);
+		string[] refused;
+		if (pending[row].TryGetValue(id, out refused))
+		{
+			if (currentName.Length == 0 || !string.Equals(currentName, FileNameOf(refused[2]), StringComparison.OrdinalIgnoreCase))
+			{
+				Problem(row, id, true, refused[0], Labelled(column, refused[1]));
+			}
+			return;
+		}
+		if (cleared[row].Contains(id))
+		{
+			if (current.Length > 0)
+			{
+				changes[row][id] = new string[] { "", null, current, currentName };
+			}
+			return;
+		}
+		string value;
+		if (!values[row].TryGetValue(id, out value) || SameFile(value, currentFile))
+		{
+			return;
+		}
+		changes[row][id] = new string[] { value, TokenName(value), current, currentName };
+	}
+
+	// The id that all generations of a referenced item share, for a versionable target.
+	string SameItemOf(Newtonsoft.Json.Linq.JObject column, string id)
+	{
+		Newtonsoft.Json.Linq.JObject target = column["itemTarget"] as Newtonsoft.Json.Linq.JObject;
+		if (target == null || !(bool)target["isVersionable"])
+		{
+			return id;
+		}
+		LoadConfigIds((string)target["name"], new string[] { id });
+		return SameItem(id);
+	}
+
+	// The checks that need the whole row: a class-specific property must apply to the
+	// row's class, and a filter list value must belong to the value it depends on.
+	void CheckDependentValues(int row)
+	{
+		string classification = classColumn == null ? "" : FinalValue(row, classColumn);
+		bool classChanged = classColumn != null && (existing[row] == null || changes[row].ContainsKey((string)classColumn["id"]));
+		foreach (Newtonsoft.Json.Linq.JObject column in ownColumns)
+		{
+			string id = (string)column["id"];
+			if (failedColumns[row].Contains(id))
+			{
+				continue;
+			}
+			bool changed = existing[row] == null || changes[row].ContainsKey(id);
+			string classPath = (string)column["classPath"];
+			if (classPath != null && classColumn != null && values[row].ContainsKey(id) && (changed || classChanged) && !Covers(classPath, classification))
+			{
+				Problem(row, id, true, "CLASS_NOT_APPLICABLE", Labelled(column,
+					"this property applies to class " + classPath + " only, and the row " +
+					(classification.Length == 0 ? "has no class" : "has class " + classification) + ". Leave the cell blank."));
+				continue;
+			}
+			if ((string)column["dataType"] != "filter list")
+			{
+				continue;
+			}
+			// A filter list: the value the row ends up with must be one of the values that
+			// belong to the value it depends on. Checked when the row changes either of the
+			// two; what Aras holds already is not the row's doing.
+			string dependsOn = (string)column["filterBy"] ?? "";
+			List<XmlElement> filters;
+			if (dependsOn.Length == 0 || !filterValues.TryGetValue((string)column["listId"] ?? "", out filters))
+			{
+				continue;
+			}
+			Newtonsoft.Json.Linq.JObject dependsOnColumn = ownColumns.FirstOrDefault(c => (string)c["property"] == dependsOn);
+			string value = FinalValue(row, column);
+			string filter = dependsOnColumn != null ? FinalValue(row, dependsOnColumn) : existing[row] == null ? "" : Text(existing[row], dependsOn);
+			bool filterChanged = existing[row] == null || dependsOnColumn != null && changes[row].ContainsKey((string)dependsOnColumn["id"]);
+			if (value.Length == 0 || filter.Length == 0 || !(changed || filterChanged))
+			{
+				continue;
+			}
+			if (!filters.Any(f => !Flag(f, "inactive") && MatchText(Text(f, "value")) == MatchText(value) && MatchText(Text(f, "filter")) == MatchText(filter)))
+			{
+				string filterLabel = dependsOnColumn == null ? dependsOn : (string)dependsOnColumn["label"];
+				Problem(row, id, true, "FILTER_MISMATCH", Labelled(column,
+					"'" + Clip(DisplayOf(column, value)) + "' is not a value for " + filterLabel + " '" + Clip(dependsOnColumn == null ? filter : DisplayOf(dependsOnColumn, filter)) + "'." +
+					(values[row].ContainsKey(id) ? "" : " Pick a value that fits, or empty the cell with " + ClearToken + ".")));
+			}
+		}
+	}
+
+	// What only a new item needs: a value in every required column that has no default.
+	void CheckNewRow(int row)
+	{
+		foreach (Newtonsoft.Json.Linq.JObject column in ownColumns)
+		{
+			string id = (string)column["id"];
+			if (values[row].ContainsKey(id) || failedColumns[row].Contains(id) || (bool)column["isKey"] || (string)column["defaultValue"] != null)
+			{
+				continue;
+			}
+			if ((bool)column["required"])
+			{
+				Problem(row, id, true, "REQUIRED", Labelled(column, columnStatus[id] == "added"
+					? "a value is required for a new item, and the workbook has no column for it. Generate the workbook again."
+					: "a value is required for a new item."));
+			}
+			else if (!MatchesPattern(column, ""))
+			{
+				Problem(row, id, true, "PATTERN", Labelled(column, "a value is needed for a new item: an empty value does not have the format this property asks for (" + (string)column["pattern"] + ")."));
+			}
+		}
+	}
+}
+
+// The digest of a row: a fingerprint of what importing the row would do. It covers the
+// action, the item the row stands for, the values written and the values they replace,
+// and on a relationship sheet the parent and the related item. It leaves out messages
+// and display texts. Items are named by the id all their generations share, so a new
+// generation of an item that the import itself makes (a parent whose relationship rows
+// were written, say) does not change the digest of another row that names it. A parent
+// that does not exist yet is named by its row on the main sheet, and so is a related item
+// that a row of the main sheet creates: by that row while it is new, and still by that row
+// once an earlier batch of the import has created it (see RelatedItemName). A parent that
+// no row or item has the key of (a row with PARENT_NOT_FOUND) is named by nothing.
+string RowDigest(Newtonsoft.Json.Linq.JObject result, XmlElement item, Dictionary<string, Newtonsoft.Json.Linq.JObject> columnById)
+{
+	Func<string, string, string> identity = (columnId, value) =>
+	{
+		if (columnId == RelatedIdColumn)
+		{
+			return RelatedItemName(value);
+		}
+		Newtonsoft.Json.Linq.JObject column;
+		bool isItem = columnById.TryGetValue(columnId, out column) && (string)column["dataType"] == "item";
+		return isItem ? SameItem(value) : value;
+	};
+	Func<Newtonsoft.Json.Linq.JToken, string> cells = (token) =>
+	{
+		Newtonsoft.Json.Linq.JObject values = token as Newtonsoft.Json.Linq.JObject;
+		return values == null ? "" : string.Join("\u001E", values.Properties()
+			.OrderBy(p => p.Name, StringComparer.Ordinal)
+			.Select(p => p.Name + "=" + identity(p.Name, (string)p.Value)));
+	};
+	Newtonsoft.Json.Linq.JObject parent = result["parent"] as Newtonsoft.Json.Linq.JObject;
+	Newtonsoft.Json.Linq.JObject related = result["related"] as Newtonsoft.Json.Linq.JObject;
+	string parentText = parent == null ? "" : Str(parent, "id") != null ? "item:" + SameItem(Str(parent, "id"))
+		: RowReferenceName(parent);
+	string itemText = item == null ? "" : Text(item, "config_id").Length > 0 ? Text(item, "config_id") : item.GetAttribute("id");
+	string text = string.Join("\u001F", new string[]
+	{
+		(string)result["action"], itemText, cells(result["values"]), cells(result["old"]), parentText,
+		related == null ? "" : Str(related, "file") != null ? Str(related, "file")
+			: Str(related, "id") != null ? RelatedItemName(Str(related, "id")) : RowReferenceName(related)
+	});
+	StringBuilder hex = new StringBuilder();
+	using (System.Security.Cryptography.SHA256 sha = System.Security.Cryptography.SHA256.Create())
+	{
+		foreach (byte b in sha.ComputeHash(Encoding.UTF8.GetBytes(text)).Take(16))
+		{
+			hex.Append(b.ToString("x2", CultureInfo.InvariantCulture));
+		}
+	}
+	return hex.ToString();
+}
+
+// ---------------------------------------------------------------------------------
+// One cell
+// ---------------------------------------------------------------------------------
+
+// Converts the value of a cell to the value Aras stores for the column. Returns null when
+// the value is good, and otherwise { code, message, text }: text is null for a value that
+// is plainly wrong, and the text of the cell for a value that is only wrong when it is
+// not the value the item already has (a list value that was retired, say).
+// For an item reference only the text is returned, in display; it is resolved later.
+string[] ConvertValue(Newtonsoft.Json.Linq.JObject column, List<string> classPaths, Newtonsoft.Json.Linq.JToken cell, out string stored, out string display)
+{
+	stored = null;
+	display = null;
+	string dataType = (string)column["dataType"];
+	string text;
+	switch (cell.Type)
+	{
+		case Newtonsoft.Json.Linq.JTokenType.String:
+			text = (string)cell;
+			break;
+		case Newtonsoft.Json.Linq.JTokenType.Integer:
+			text = Convert.ToString(((Newtonsoft.Json.Linq.JValue)cell).Value, CultureInfo.InvariantCulture);
+			break;
+		case Newtonsoft.Json.Linq.JTokenType.Float:
+			text = NumberText((double)cell);
+			break;
+		case Newtonsoft.Json.Linq.JTokenType.Boolean:
+			text = (bool)cell ? "TRUE" : "FALSE";
+			break;
+		default:
+			return Refuse("VALUE_TYPE", "the cell holds something that is not text, a number or Yes/No.");
+	}
+	string trimmed = text.Trim();
+	string shown = "'" + Clip(trimmed) + "'";
+
+	if ((bool)column["isClassification"] && classPaths != null)
+	{
+		string path = classPaths.FirstOrDefault(p => p == trimmed);
+		if (path == null)
+		{
+			List<string> loose = classPaths.Where(p => string.Equals(p, trimmed, StringComparison.OrdinalIgnoreCase)).ToList();
+			path = loose.Count == 1 ? loose[0] : null;
+		}
+		if (path == null)
+		{
+			return new string[] { "CLASS_INVALID", shown + " is not a class you can pick for this ItemType. Pick a class path from the drop-down.", trimmed };
+		}
+		stored = path;
+		return null;
+	}
+
+	switch (dataType)
+	{
+		case "string":
+		case "ml_string":
+		{
+			// The value of a key is compared without regard to the spaces around it.
+			string value = (bool)column["isKey"] ? trimmed : text;
+			int? length = (int?)column["storedLength"];
+			if (length != null && length > 0 && value.Length > length)
+			{
+				return Refuse("TOO_LONG", "the text has " + value.Length + " characters, and at most " + length + " are allowed.");
+			}
+			if (dataType == "string" && !MatchesPattern(column, value))
+			{
+				return Refuse("PATTERN", shown + " does not have the format this property asks for (" + (string)column["pattern"] + ").");
+			}
+			stored = value;
+			return null;
+		}
+		case "text":
+		case "formatted text":
+			stored = text;
+			return null;
+		case "integer":
+		case "decimal":
+		{
+			decimal number;
+			if (!TryDecimal(cell, trimmed, out number))
+			{
+				return Refuse("NOT_A_NUMBER", shown + " is not a number. Use digits, with a point for decimals.");
+			}
+			if (dataType == "integer")
+			{
+				if (number != decimal.Truncate(number))
+				{
+					return Refuse("NOT_AN_INTEGER", shown + " is not a whole number.");
+				}
+				if (number < int.MinValue || number > int.MaxValue)
+				{
+					return Refuse("OUT_OF_RANGE", shown + " is outside the range of a whole number in Aras (" + int.MinValue + " to " + int.MaxValue + ").");
+				}
+			}
+			number = number / 1.000000000000000000000000000000000m;
+			string range = RangeProblem(column, (double)number);
+			if (range != null)
+			{
+				return Refuse("OUT_OF_RANGE", shown + " " + range);
+			}
+			if (dataType == "decimal")
+			{
+				int? precision = (int?)column["precision"];
+				int? scale = (int?)column["scale"];
+				int decimals = (decimal.GetBits(number)[3] >> 16) & 0xFF;
+				decimal whole = Math.Abs(decimal.Truncate(number));
+				int digits = whole == 0 ? 0 : whole.ToString("0", CultureInfo.InvariantCulture).Length;
+				if (scale != null && decimals > scale)
+				{
+					return Refuse("TOO_MANY_DECIMALS", shown + " has " + decimals + " decimal places, and at most " + scale + " are stored.");
+				}
+				if (precision != null && digits > precision - (scale ?? 0))
+				{
+					return Refuse("TOO_MANY_DIGITS", shown + " has " + digits + " digits before the decimal point, and at most " + (precision - (scale ?? 0)) + " are stored.");
+				}
+			}
+			stored = number.ToString(CultureInfo.InvariantCulture);
+			return null;
+		}
+		case "float":
+		{
+			double number;
+			if (!TryDouble(cell, trimmed, out number))
+			{
+				return Refuse("NOT_A_NUMBER", shown + " is not a number. Use digits, with a point for decimals.");
+			}
+			string range = RangeProblem(column, number);
+			if (range != null)
+			{
+				return Refuse("OUT_OF_RANGE", shown + " " + range);
+			}
+			stored = number.ToString("R", CultureInfo.InvariantCulture);
+			return null;
+		}
+		case "date":
+		{
+			string neutral;
+			if (!TryDate(cell, trimmed, out neutral))
+			{
+				return Refuse("NOT_A_DATE", shown + " is not a date Aras can store. Enter it as a date in Excel, or as yyyy-MM-dd.");
+			}
+			stored = neutral;
+			return null;
+		}
+		case "boolean":
+		{
+			string folded = trimmed.ToLowerInvariant();
+			if (folded == "true" || folded == "yes" || folded == "1")
+			{
+				stored = "1";
+			}
+			else if (folded == "false" || folded == "no" || folded == "0")
+			{
+				stored = "0";
+			}
+			else
+			{
+				return Refuse("NOT_A_BOOLEAN", shown + " is not Yes or No.");
+			}
+			return null;
+		}
+		case "list":
+		case "filter list":
+		case "color list":
+		{
+			List<string[]> entries;
+			if (!listEntries.TryGetValue((string)column["listId"] ?? "", out entries) || dataType == "color list" && entries.Count == 0)
+			{
+				if (dataType != "color list")
+				{
+					return new string[] { "NOT_IN_LIST", shown + " is not a value of the list.", trimmed };
+				}
+				goto case "color";
+			}
+			int result = FindListEntry(entries, trimmed, out stored, out display);
+			if (result == 2)
+			{
+				return Refuse("LIST_AMBIGUOUS", shown + " is the label of more than one value of the list. Pick the value from the drop-down.");
+			}
+			if (result == 1)
+			{
+				return new string[] { "NOT_IN_LIST", shown + " is not a value of the list. Pick a value from the drop-down.", trimmed };
+			}
+			return null;
+		}
+		case "mv_list":
+		{
+			List<string[]> entries;
+			listEntries.TryGetValue((string)column["listId"] ?? "", out entries);
+			List<string> picked = new List<string>();
+			List<string> wrong = new List<string>();
+			foreach (string part in trimmed.Split(','))
+			{
+				string wanted = part.Trim();
+				if (wanted.Length == 0)
+				{
+					continue;
+				}
+				// A multi-value cell holds stored values, never labels: a label may hold a comma.
+				List<string[]> matches = entries == null ? new List<string[]>() : entries.Where(e => e[0] == wanted).ToList();
+				if (matches.Count == 0 && entries != null)
+				{
+					matches = entries.Where(e => MatchText(e[0]) == MatchText(wanted)).ToList();
+				}
+				if (matches.Count == 1)
+				{
+					picked.Add(matches[0][0]);
+				}
+				else
+				{
+					picked.Add(wanted);
+					wrong.Add(wanted);
+				}
+			}
+			stored = string.Join(",", picked);
+			int? length = (int?)column["storedLength"];
+			if (wrong.Count > 0)
+			{
+				return new string[] { "NOT_IN_LIST", "'" + Clip(string.Join(", ", wrong)) + "' " + (wrong.Count == 1 ? "is not a value" : "are not values") +
+					" of the list. Enter the stored values of the list, separated by commas.", trimmed };
+			}
+			if (length != null && length > 0 && stored.Length > length)
+			{
+				return Refuse("TOO_LONG", "the values take " + stored.Length + " characters together, and at most " + length + " are allowed.");
+			}
+			return null;
+		}
+		case "item":
+		case "file":
+			display = trimmed;
+			return null;
+		case "color":
+			if (!System.Text.RegularExpressions.Regex.IsMatch(trimmed, "^#[0-9A-Fa-f]{6}$"))
+			{
+				return Refuse("NOT_A_COLOR", shown + " is not a colour. Enter it as #RRGGBB, for example #1A2B3C.");
+			}
+			stored = trimmed;
+			return null;
+		default:
+			return Refuse("VALUE_TYPE", "values of type " + dataType + " cannot be imported.");
+	}
+}
+
+string[] Refuse(string code, string message)
+{
+	return new string[] { code, message, null };
+}
+
+bool IsBlank(Newtonsoft.Json.Linq.JToken cell)
+{
+	return cell == null || cell.Type == Newtonsoft.Json.Linq.JTokenType.Null || cell.Type == Newtonsoft.Json.Linq.JTokenType.Undefined ||
+		cell.Type == Newtonsoft.Json.Linq.JTokenType.String && ((string)cell).Trim().Length == 0;
+}
+
+bool TryDecimal(Newtonsoft.Json.Linq.JToken cell, string text, out decimal number)
+{
+	number = 0;
+	try
+	{
+		if (cell.Type == Newtonsoft.Json.Linq.JTokenType.Float)
+		{
+			// A number cell is a double. The conversion keeps its 15 significant digits,
+			// which drops the noise a binary fraction carries (0.1 + 0.2).
+			number = (decimal)(double)cell;
+			return true;
+		}
+		return cell.Type != Newtonsoft.Json.Linq.JTokenType.Boolean &&
+			decimal.TryParse(text, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint | NumberStyles.AllowExponent, CultureInfo.InvariantCulture, out number);
+	}
+	catch (OverflowException)
+	{
+		return false;
+	}
+}
+
+bool TryDouble(Newtonsoft.Json.Linq.JToken cell, string text, out double number)
+{
+	number = 0;
+	if (cell.Type == Newtonsoft.Json.Linq.JTokenType.Boolean)
+	{
+		return false;
+	}
+	return double.TryParse(text, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint | NumberStyles.AllowExponent, CultureInfo.InvariantCulture, out number) &&
+		!double.IsNaN(number) && !double.IsInfinity(number);
+}
+
+// Null when the number is inside the range of the column, and otherwise what is wrong.
+string RangeProblem(Newtonsoft.Json.Linq.JObject column, double number)
+{
+	int? min = (int?)column["minRange"];
+	int? max = (int?)column["maxRange"];
+	bool inclusive = (bool)column["rangeInclusive"];
+	if (min != null && (inclusive ? number < min : number <= min))
+	{
+		return "is too small: the value must be " + (inclusive ? "at least " : "greater than ") + min + ".";
+	}
+	if (max != null && (inclusive ? number > max : number >= max))
+	{
+		return "is too large: the value must be " + (inclusive ? "at most " : "less than ") + max + ".";
+	}
+	return null;
+}
+
+// A date as Aras takes it: yyyy-MM-ddTHH:mm:ss, read as wall-clock time in the time zone
+// of the session. The browser sends a date cell in that form already. Text typed into a
+// cell is read as that form first, and then the way the session's locale writes dates.
+bool TryDate(Newtonsoft.Json.Linq.JToken cell, string text, out string neutral)
+{
+	neutral = null;
+	DateTime date;
+	if (cell.Type == Newtonsoft.Json.Linq.JTokenType.Boolean)
+	{
+		return false;
+	}
+	if (cell.Type != Newtonsoft.Json.Linq.JTokenType.String)
+	{
+		// A bare number is the serial number Excel keeps a date as.
+		double serial;
+		if (!TryDouble(cell, text, out serial) || serial < 1 || serial >= 2958466)
+		{
+			return false;
+		}
+		date = DateTime.FromOADate(serial);
+	}
+	else if (!DateTime.TryParseExact(text, new string[] { NeutralDateFormat, "yyyy-MM-dd HH:mm:ss", "yyyy-MM-ddTHH:mm", "yyyy-MM-dd HH:mm", "yyyy-MM-dd" },
+		CultureInfo.InvariantCulture, DateTimeStyles.None, out date))
+	{
+		string converted;
+		try
+		{
+			converted = session.ConvertToNeutral(text, "date", "");
+		}
+		catch (Exception)
+		{
+			return false;
+		}
+		if (converted == null || !DateTime.TryParseExact(converted, NeutralDateFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out date))
+		{
+			return false;
+		}
+	}
+	// The earliest date the database stores.
+	if (date.Year < 1753)
+	{
+		return false;
+	}
+	neutral = date.ToString(NeutralDateFormat, CultureInfo.InvariantCulture);
+	return true;
+}
+
+// True when the value fits the regular expression of a string column, or the column has
+// none. The expression is searched for in the value, not matched against all of it; one
+// that cannot be read, or takes too long, refuses nothing.
+bool MatchesPattern(Newtonsoft.Json.Linq.JObject column, string value)
+{
+	string pattern = (string)column["pattern"];
+	if ((string)column["dataType"] != "string" || string.IsNullOrEmpty(pattern))
+	{
+		return true;
+	}
+	System.Text.RegularExpressions.Regex expression;
+	if (!patterns.TryGetValue(pattern, out expression))
+	{
+		try
+		{
+			expression = new System.Text.RegularExpressions.Regex(pattern, System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromMilliseconds(250));
+		}
+		catch (ArgumentException)
+		{
+			expression = null;
+		}
+		patterns[pattern] = expression;
+	}
+	try
+	{
+		return expression == null || expression.IsMatch(value);
+	}
+	catch (System.Text.RegularExpressions.RegexMatchTimeoutException)
+	{
+		return true;
+	}
+}
+
+// ---------------------------------------------------------------------------------
+// Lists
+// ---------------------------------------------------------------------------------
+
+// The entries of a list as { value, label, text shown }. The text shown is the label; it
+// is the value instead when the label is empty or shared with another value, and again
+// when the text would otherwise stand for two values. The workbook's drop-downs are built
+// by the same rule, so a text from a sheet finds its value here.
+List<string[]> DisplayedEntries(Newtonsoft.Json.Linq.JArray listValues)
+{
+	List<string[]> entries = new List<string[]>();
+	foreach (Newtonsoft.Json.Linq.JToken entry in listValues ?? new Newtonsoft.Json.Linq.JArray())
+	{
+		string value = Str(entry, "value") ?? "";
+		if (value.Trim().Length > 0)
+		{
+			entries.Add(new string[] { value, Str(entry, "label") ?? "", null });
+		}
+	}
+	bool[] showLabel = new bool[entries.Count];
+	Dictionary<string, int> labels = entries.GroupBy(e => MatchText(e[1])).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+	for (int i = 0; i < entries.Count; i++)
+	{
+		showLabel[i] = MatchText(entries[i][1]).Length > 0 && labels[MatchText(entries[i][1])] == 1;
+	}
+	for (;;)
+	{
+		Dictionary<string, int> shownTexts = Enumerable.Range(0, entries.Count)
+			.GroupBy(i => MatchText(showLabel[i] ? entries[i][1] : entries[i][0]))
+			.ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+		List<int> clashing = Enumerable.Range(0, entries.Count).Where(i => showLabel[i] && shownTexts[MatchText(entries[i][1])] > 1).ToList();
+		if (clashing.Count == 0)
+		{
+			break;
+		}
+		foreach (int i in clashing)
+		{
+			showLabel[i] = false;
+		}
+	}
+	for (int i = 0; i < entries.Count; i++)
+	{
+		entries[i][2] = showLabel[i] ? entries[i][1] : entries[i][0];
+	}
+	return entries;
+}
+
+// Finds the list value a text stands for: a stored value first (the browser sends
+// those), then a text the drop-down shows, then a label. Returns 0 when found, 1 when
+// nothing matches and 2 when the text is the label of several values.
+int FindListEntry(List<string[]> entries, string text, out string value, out string display)
+{
+	value = null;
+	display = null;
+	string folded = MatchText(text);
+	List<string[]> matches = entries.Where(e => e[0] == text).ToList();
+	foreach (int field in new int[] { 0, 2, 1 })
+	{
+		if (matches.Count == 0)
+		{
+			matches = entries.Where(e => e[field] == text).ToList();
+		}
+		if (matches.Count == 0)
+		{
+			matches = entries.Where(e => MatchText(e[field]) == folded).ToList();
+		}
+	}
+	if (matches.Count != 1)
+	{
+		return matches.Count == 0 ? 1 : 2;
+	}
+	value = matches[0][0];
+	display = matches[0][2];
+	return 0;
+}
+
+// The text to show for a stored value of a column: for a list value, what the drop-down shows.
+string DisplayOf(Newtonsoft.Json.Linq.JObject column, string value)
+{
+	List<string[]> entries;
+	if (value.Length == 0 || !listEntries.TryGetValue((string)column["listId"] ?? "", out entries) || (string)column["dataType"] == "mv_list")
+	{
+		return value;
+	}
+	string[] entry = entries.FirstOrDefault(e => e[0] == value) ?? entries.FirstOrDefault(e => MatchText(e[0]) == MatchText(value));
+	return entry == null ? value : entry[2];
+}
+
+// ---------------------------------------------------------------------------------
+// Comparing values
+// ---------------------------------------------------------------------------------
+
+// A stored value in the one form two values of a column are compared in, so that the same
+// value written two ways (1.50 and 1.5, a list value in another case) is the same value.
+// forMatch is for finding an item by a key: text then ignores case and the spaces around
+// it, as the database does. Otherwise text is compared as it is, so a change of case is
+// a change.
+string Canon(Newtonsoft.Json.Linq.JObject column, string value, bool forMatch)
+{
+	string dataType = (string)column["dataType"];
+	value = value ?? "";
+	if (dataType == "boolean")
+	{
+		return value.Trim() == "1" ? "1" : "0";
+	}
+	if (value.Length == 0)
+	{
+		return "";
+	}
+	switch (dataType)
+	{
+		case "string":
+		case "ml_string":
+			return forMatch ? MatchText(value) : value;
+		case "text":
+		case "formatted text":
+			// Excel keeps a line break as one character, Aras may hold two.
+			value = value.Replace("\r\n", "\n").Replace('\r', '\n');
+			return forMatch ? MatchText(value) : value;
+		case "integer":
+		case "decimal":
+		{
+			decimal number;
+			return decimal.TryParse(value.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out number)
+				? (number / 1.000000000000000000000000000000000m).ToString(CultureInfo.InvariantCulture)
+				: value.Trim();
+		}
+		case "float":
+		{
+			double number;
+			return double.TryParse(value.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out number)
+				? number.ToString("G15", CultureInfo.InvariantCulture)
+				: value.Trim();
+		}
+		case "date":
+			// A date-only column shows no time, so the day is what is compared. A day typed
+			// into the sheet then equals the same day in Aras, whatever time Aras holds.
+			value = value.Trim();
+			return ((string)column["pattern"] == "short_date" || (string)column["pattern"] == "long_date") && value.Length >= 10 ? value.Substring(0, 10) : value;
+		case "mv_list":
+			return string.Join(",", value.Split(',').Select(part => MatchText(part)).Where(part => part.Length > 0).OrderBy(part => part, StringComparer.Ordinal));
+		case "item":
+			return value;
+		default:
+			return MatchText(value);
+	}
+}
+
+// Text as the database compares it when it looks for a value: without regard to case
+// and to the spaces around it.
+string MatchText(string text)
+{
+	return (text ?? "").Trim().ToUpperInvariant();
+}
+
+// True when a class path of a property covers the class of an item: the class itself
+// and every class below it.
+bool Covers(string classPath, string classification)
+{
+	return classification.Length > 0 && (string.Equals(classification, classPath, StringComparison.OrdinalIgnoreCase) ||
+		classification.StartsWith(classPath + "/", StringComparison.OrdinalIgnoreCase));
+}
+
+// ---------------------------------------------------------------------------------
+// Lookups, as the caller
+// ---------------------------------------------------------------------------------
+
+// Finds the items that have the wanted keys, a few hundred keys per request. wanted maps
+// a key (in the form of Canon) to its stored values, one per key column; the result maps
+// the same keys to the items found. Every key property is an equals condition, and the
+// current generation is asked for on a versionable ItemType. The database compares text
+// without regard to case, and so do the keys.
+Dictionary<string, List<XmlElement>> LookupByKey(string typeName, bool versionable, List<Newtonsoft.Json.Linq.JObject> keyColumns, Dictionary<string, string[]> wanted, string select)
+{
+	Dictionary<string, List<XmlElement>> found = new Dictionary<string, List<XmlElement>>(StringComparer.Ordinal);
+	List<string[]> keys = wanted.Values.ToList();
+	List<string> properties = keyColumns.Select(c => (string)c["property"]).ToList();
+	string selected = string.Join(",", select.Split(',').Union(properties));
+	for (int start = 0; start < keys.Count; start += KeyChunk)
+	{
+		foreach (XmlElement item in Query(KeyQuery(typeName, versionable, properties, keys.Skip(start).Take(KeyChunk), selected)))
+		{
+			string key = string.Join(KeySeparator, Enumerable.Range(0, properties.Count).Select(i => Canon(keyColumns[i], Text(item, properties[i]), true)));
+			if (!found.ContainsKey(key))
+			{
+				found[key] = new List<XmlElement>();
+			}
+			found[key].Add(item);
+		}
+	}
+	return found;
+}
+
+// The request that finds the items with any of the given keys: every key property is an
+// equals condition, and the current generation is asked for on a versionable ItemType.
+string KeyQuery(string typeName, bool versionable, List<string> properties, IEnumerable<string[]> keys, string select)
+{
+	StringBuilder aml = new StringBuilder();
+	aml.Append("<Item type=\"").Append(Xml(typeName)).Append("\" action=\"get\" select=\"").Append(select).Append("\">");
+	if (versionable)
+	{
+		aml.Append("<is_current>1</is_current>");
+	}
+	aml.Append("<or>");
+	foreach (string[] key in keys)
+	{
+		if (properties.Count > 1)
+		{
+			aml.Append("<and>");
+		}
+		for (int i = 0; i < properties.Count; i++)
+		{
+			aml.Append('<').Append(properties[i]).Append('>').Append(Xml(key[i])).Append("</").Append(properties[i]).Append('>');
+		}
+		if (properties.Count > 1)
+		{
+			aml.Append("</and>");
+		}
+	}
+	aml.Append("</or></Item>");
+	return aml.ToString();
+}
+
+// The keys among the given ones (keys the caller's own lookup found no item for) that an
+// item has all the same, one the caller may not see. Creating an item with such a key
+// would fail on the Unique properties, so the row is refused before the import, and that
+// tells the caller nothing the import would not. The lookup is the only one made with the
+// Super User identity, so that it sees every item, and it asks for nothing but the id: a chunk of
+// keys at a time, and only for a chunk that has a hit, key by key. Nothing it finds goes
+// into the result except that the key is taken.
+HashSet<string> HiddenKeys(string typeName, bool versionable, List<Newtonsoft.Json.Linq.JObject> keyColumns, Dictionary<string, string[]> wanted)
+{
+	HashSet<string> hidden = new HashSet<string>(StringComparer.Ordinal);
+	if (wanted.Count == 0)
+	{
+		return hidden;
+	}
+	List<string> properties = keyColumns.Select(c => (string)c["property"]).ToList();
+	List<KeyValuePair<string, string[]>> keys = wanted.ToList();
+	Aras.Server.Security.Identity superUser = Aras.Server.Security.Identity.GetById(SuperUserIdentityId);
+	bool granted = Aras.Server.Security.Permissions.GrantIdentity(superUser);
+	try
+	{
+		for (int start = 0; start < keys.Count; start += KeyChunk)
+		{
+			List<KeyValuePair<string, string[]>> chunk = keys.Skip(start).Take(KeyChunk).ToList();
+			if (Query(KeyQuery(typeName, versionable, properties, chunk.Select(k => k.Value), "id")).Count == 0)
+			{
+				continue;
+			}
+			foreach (KeyValuePair<string, string[]> key in chunk)
+			{
+				if (chunk.Count == 1 || Query(KeyQuery(typeName, versionable, properties, new string[][] { key.Value }, "id")).Count > 0)
+				{
+					hidden.Add(key.Key);
+				}
+			}
+		}
+	}
+	finally
+	{
+		if (granted)
+		{
+			Aras.Server.Security.Permissions.RevokeIdentity(superUser);
+		}
+	}
+	return hidden;
+}
+
+// Finds the items of an ItemType by keyed name, each name asked for once. The result
+// maps a name (without regard to case) to the items that have it. An ItemType or an item
+// the caller may not read gives nothing: for the caller it does not exist.
+Dictionary<string, List<XmlElement>> ResolveReferences(string typeName, IEnumerable<string> names)
+{
+	Dictionary<string, List<XmlElement>> known;
+	if (!referenceCache.TryGetValue(typeName, out known))
+	{
+		known = new Dictionary<string, List<XmlElement>>(StringComparer.Ordinal);
+		referenceCache[typeName] = known;
+	}
+	List<string> wanted = names.Where(n => !known.ContainsKey(MatchText(n))).GroupBy(n => MatchText(n)).Select(g => g.First()).ToList();
+	foreach (string name in wanted)
+	{
+		known[MatchText(name)] = new List<XmlElement>();
+	}
+	for (int start = 0; typeName.Length > 0 && start < wanted.Count; start += KeyChunk)
+	{
+		StringBuilder aml = new StringBuilder();
+		aml.Append("<Item type=\"").Append(Xml(typeName)).Append("\" action=\"get\" select=\"id,keyed_name,config_id\"><or>");
+		foreach (string name in wanted.Skip(start).Take(KeyChunk))
+		{
+			aml.Append("<keyed_name>").Append(Xml(name)).Append("</keyed_name>");
+		}
+		aml.Append("</or></Item>");
+		foreach (XmlElement item in TryQuery(aml.ToString()) ?? new List<XmlElement>())
+		{
+			List<XmlElement> sameName;
+			if (known.TryGetValue(MatchText(Text(item, "keyed_name")), out sameName))
+			{
+				sameName.Add(item);
+				configIdCache[item.GetAttribute("id")] = Text(item, "config_id");
+			}
+		}
+	}
+	return known;
+}
+
+// Asks which of the items the caller may update, many items per request. An item the
+// answer leaves out is asked for by itself.
+void LoadCanUpdate(string typeName, IEnumerable<string> ids)
+{
+	List<string> wanted = ids.Where(id => !canUpdateCache.ContainsKey(id)).Distinct().ToList();
+	for (int start = 0; start < wanted.Count; start += IdChunk)
+	{
+		Item response = inn.applyAML(
+			"<AML><Item type=\"" + Xml(typeName) + "\" action=\"getPermissions\" access_type=\"can_update\" idlist=\"" +
+			string.Join(",", wanted.Skip(start).Take(IdChunk)) + "\"/></AML>");
+		queryCount++;
+		if (response.isError())
+		{
+			continue;
+		}
+		foreach (XmlNode node in response.dom.SelectNodes("//Result/Item"))
+		{
+			XmlElement answer = (XmlElement)node;
+			canUpdateCache[answer.GetAttribute("id")] = Text(answer, "can_update") == "1";
+		}
+	}
+	foreach (string id in wanted.Where(id => !canUpdateCache.ContainsKey(id)))
+	{
+		XmlNode result = CallServer("ApplyItem", "<Item type=\"" + Xml(typeName) + "\" id=\"" + id + "\" action=\"getPermissions\" access_type=\"can_update\"/>");
+		canUpdateCache[id] = result != null && result.InnerText.Trim() == "1";
+	}
+}
+
+// Reads the id that all generations of an item share, for items not known yet.
+void LoadConfigIds(string typeName, IEnumerable<string> ids)
+{
+	List<string> wanted = ids.Where(id => id.Length > 0 && !configIdCache.ContainsKey(id)).Distinct().ToList();
+	for (int start = 0; start < wanted.Count; start += IdChunk)
+	{
+		foreach (XmlElement item in TryQuery(
+			"<Item type=\"" + Xml(typeName) + "\" action=\"get\" select=\"config_id\" idlist=\"" + string.Join(",", wanted.Skip(start).Take(IdChunk)) + "\"/>") ?? new List<XmlElement>())
+		{
+			configIdCache[item.GetAttribute("id")] = Text(item, "config_id");
+		}
+	}
+	foreach (string id in wanted.Where(id => !configIdCache.ContainsKey(id)))
+	{
+		configIdCache[id] = id;
+	}
+}
+
+// What identifies an item across its generations, when that is known; otherwise its id.
+string SameItem(string id)
+{
+	string configId;
+	return id.Length > 0 && configIdCache.TryGetValue(id, out configId) && configId.Length > 0 ? configId : id;
+}
+
+// How a row of a main sheet that creates an item names that item before it has an id: in the
+// related item of a relationship row, and in the related_id value of a row that changes its
+// related item. FRG_MCE_ImportWorkbook puts in the id the new item gets. A row of the first
+// sheet is "row:<number>"; a row of another main sheet is "row:<index of the sheet>:<number>".
+string NewRowName(int sheet, int rowNumber)
+{
+	return "row:" + (sheet > 0 ? sheet.ToString(CultureInfo.InvariantCulture) + ":" : "") + rowNumber.ToString(CultureInfo.InvariantCulture);
+}
+
+// A related item as the digest names it: by the row of the main sheet it was created from
+// when an earlier batch of this job's import created it, so that the digest stays the one
+// the preview had, where the item was still that new row; otherwise as SameItem does.
+string RelatedItemName(string id)
+{
+	if (id == null || id.StartsWith("row:", StringComparison.Ordinal))
+	{
+		return id ?? "";
+	}
+	string name;
+	return createdMainRows.TryGetValue(SameItem(id), out name) ? name : SameItem(id);
+}
+
+// A parent or related item of the result by the row of the main sheet it is on, or "" when
+// it names no row.
+string RowReferenceName(Newtonsoft.Json.Linq.JObject reference)
+{
+	int row;
+	return int.TryParse(Str(reference, "row") ?? "", NumberStyles.Integer, CultureInfo.InvariantCulture, out row) ? NewRowName(SheetOf(reference), row) : "";
+}
+
+// The main sheet a parent or a related item of the result is on.
+int SheetOf(Newtonsoft.Json.Linq.JObject reference)
+{
+	return (int)reference["sheet"];
+}
+
+// The main sheet of the parents of a relationship sheet, as the schema says.
+int ParentSheetOf(Newtonsoft.Json.Linq.JObject sheetDef)
+{
+	return (int)sheetDef["parentSheet"];
+}
+
+// The main sheet whose rows can be the related items of a relationship sheet, or -1: the main
+// sheet of its related ItemType, when that is a target of the job.
+int RelatedSheetOf(Newtonsoft.Json.Linq.JObject sheetDef)
+{
+	Newtonsoft.Json.Linq.JToken index = sheetDef["relatedSheet"];
+	return index != null && index.Type == Newtonsoft.Json.Linq.JTokenType.Integer ? (int)index : -1;
+}
+
+// A main sheet as a message names it: "the first sheet" in a workbook with one, else by its name.
+string MainSheetText(int sheet)
+{
+	return mainCount == 1 ? "the first sheet" : "sheet '" + Clip(mainSheetNames[sheet]) + "'";
+}
+
+// The target ItemTypes of a job, in the order of their main sheets. The job's targets property
+// lists them as JSON, [ { "itemTypeId": "...", "prefillIds": [ ... ] }, ... ], when the job has
+// several; a job with one has its target_itemtype. Null when the list can't be read, names an
+// ItemType twice, or does not start with target_itemtype.
+List<string> JobTargetIds(XmlElement job)
+{
+	string first = Text(job, "target_itemtype").ToUpperInvariant();
+	string text = Text(job, "targets").Trim();
+	if (text.Length == 0)
+	{
+		return new List<string> { first };
+	}
+	Newtonsoft.Json.Linq.JArray entries;
+	try
+	{
+		entries = ParseJson(text) as Newtonsoft.Json.Linq.JArray;
+	}
+	catch (Exception)
+	{
+		return null;
+	}
+	if (entries == null)
+	{
+		return null;
+	}
+	List<string> ids = new List<string>();
+	foreach (Newtonsoft.Json.Linq.JToken entry in entries)
+	{
+		string id = (Str(entry, "itemTypeId") ?? "").Trim().ToUpperInvariant();
+		if (!IsId(id) || ids.Contains(id))
+		{
+			return null;
+		}
+		ids.Add(id);
+	}
+	return ids.Count > 0 && ids[0] == first ? ids : null;
+}
+
+// True when the caller may create an item of the ItemType without a class: one of the
+// caller's identities has a Can Add row that is not limited to a class. Whether an item
+// of a certain class may be created is in the class paths of the schema, which leave
+// out the classes the caller cannot use. When the caller cannot read the Can Add rows
+// the answer is not known here, and the import finds out.
+bool MayAdd(string typeId)
+{
+	List<XmlElement> rows;
+	if (userIdentities.Contains(SuperUserIdentityId) || !canAddRows.TryGetValue(typeId, out rows))
+	{
+		return true;
+	}
+	return rows.Any(canAdd => Flag(canAdd, "can_add") && Text(canAdd, "class_path").Trim().Length == 0 && userIdentities.Contains(Text(canAdd, "related_id")));
+}
+
+// The properties a lookup of existing items asks for: the columns, what the checks
+// read besides them, and for a relationship its two ends and its own Unique properties.
+string SelectFor(Newtonsoft.Json.Linq.JObject sheetDef, List<Newtonsoft.Json.Linq.JObject> ownColumns, bool isRelationship)
+{
+	List<string> names = new List<string> { "id", "keyed_name", "config_id", "modified_on", "locked_by_id", "classification" };
+	if (isRelationship)
+	{
+		names.Add("source_id");
+		names.Add("related_id");
+		names.AddRange(UniqueProperties(sheetDef).Keys);
+	}
+	names.AddRange(ownColumns.Select(c => (string)c["property"]));
+	// The property a filter list depends on.
+	names.AddRange(ownColumns.Select(c => (string)c["filterBy"]).Where(n => !string.IsNullOrEmpty(n)));
+	return string.Join(",", names.Where(n => System.Text.RegularExpressions.Regex.IsMatch(n, "^[A-Za-z0-9_]+$")).Distinct());
+}
+
+// One element of a fault carried as XML in an exception's message, as text; null when
+// the message has none.
+string FaultPart(string message, string name)
+{
+	System.Text.RegularExpressions.Match part = System.Text.RegularExpressions.Regex.Match(
+		message ?? "", "<" + name + ">(.*?)</" + name + ">", System.Text.RegularExpressions.RegexOptions.Singleline);
+	if (!part.Success)
+	{
+		return null;
+	}
+	XmlDocument text = inn.newXMLDocument();
+	try
+	{
+		text.LoadXml("<t>" + part.Groups[1].Value + "</t>");
+		return text.DocumentElement.InnerText.Trim();
+	}
+	catch (XmlException)
+	{
+		return part.Groups[1].Value.Trim();
+	}
+}
+
+// The Unique properties of a relationship sheet's own ItemType, with their defaults.
+Dictionary<string, string> UniqueProperties(Newtonsoft.Json.Linq.JObject sheetDef)
+{
+	Dictionary<string, string> unique = new Dictionary<string, string>(StringComparer.Ordinal);
+	foreach (Newtonsoft.Json.Linq.JToken entry in sheetDef["uniqueProperties"] as Newtonsoft.Json.Linq.JArray ?? new Newtonsoft.Json.Linq.JArray())
+	{
+		string name = Str(entry, "property");
+		if (!string.IsNullOrEmpty(name))
+		{
+			unique[name] = Str(entry, "defaultValue") ?? "";
+		}
+	}
+	return unique;
+}
+
+string KeyedName(XmlElement item)
+{
+	string name = Attribute(item, "id", "keyed_name");
+	return name.Length > 0 ? name : Text(item, "keyed_name");
+}
+
+string LockedByName(XmlElement item)
+{
+	string name = Attribute(item, "locked_by_id", "keyed_name");
+	return name.Length > 0 ? name : "another user";
+}
+
+// ---------------------------------------------------------------------------------
+// Files
+// ---------------------------------------------------------------------------------
+
+// Reads the list of picked files. False when it is there and cannot be read.
+bool ReadPickedFiles(string text)
+{
+	if (text.Trim().Length == 0)
+	{
+		return true;
+	}
+	Newtonsoft.Json.Linq.JArray list;
+	try
+	{
+		list = ParseJson(text) as Newtonsoft.Json.Linq.JArray;
+	}
+	catch (Exception)
+	{
+		return false;
+	}
+	if (list == null)
+	{
+		return false;
+	}
+	HashSet<string> paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+	foreach (Newtonsoft.Json.Linq.JToken entry in list)
+	{
+		string path = NormalPath(Str(entry, "path") ?? "");
+		string md5 = (Str(entry, "md5") ?? "").Trim().ToUpperInvariant();
+		long size;
+		if (path.Length == 0 || FileNameOf(path).Length == 0 || !System.Text.RegularExpressions.Regex.IsMatch(md5, "^[0-9A-F]{32}$") ||
+			!long.TryParse(Str(entry, "size"), NumberStyles.Integer, CultureInfo.InvariantCulture, out size) || size < 0 || !paths.Add(path))
+		{
+			return false;
+		}
+		pickedFiles.Add(new string[] { path, FileNameOf(path), md5, size.ToString(CultureInfo.InvariantCulture) });
+	}
+	return true;
+}
+
+// A path with forward slashes, without spaces around it or a leading ./ or /.
+string NormalPath(string text)
+{
+	string path = (text ?? "").Trim().Replace('\\', '/');
+	while (path.StartsWith("./", StringComparison.Ordinal) || path.StartsWith("/", StringComparison.Ordinal))
+	{
+		path = path.Substring(path.StartsWith("./", StringComparison.Ordinal) ? 2 : 1);
+	}
+	return path;
+}
+
+// The file name at the end of a path.
+string FileNameOf(string text)
+{
+	string path = NormalPath(text);
+	return path.Substring(path.LastIndexOf('/') + 1);
+}
+
+// The picked files a file cell names: by file name, or by the end of the path inside the
+// picked folder when the cell holds a path. Case is not distinguished.
+List<int> FindPicked(string text)
+{
+	string wanted = NormalPath(text);
+	bool byPath = wanted.Contains("/");
+	List<int> found = new List<int>();
+	for (int index = 0; index < pickedFiles.Count; index++)
+	{
+		string path = pickedFiles[index][0];
+		if (byPath ? string.Equals(path, wanted, StringComparison.OrdinalIgnoreCase) || path.EndsWith("/" + wanted, StringComparison.OrdinalIgnoreCase)
+			: string.Equals(pickedFiles[index][1], wanted, StringComparison.OrdinalIgnoreCase))
+		{
+			found.Add(index);
+		}
+	}
+	return found;
+}
+
+string NotPickedText(string text)
+{
+	return "no picked file is named '" + Clip(text) + "'. Pick the file with the workbook, or write the name of the file the item has now to keep it.";
+}
+
+// Why a picked file can't be imported, as { code, message }, or null when it can.
+string[] FileLimitProblem(string[] picked)
+{
+	long size = long.Parse(picked[3], CultureInfo.InvariantCulture);
+	string name = "'" + Clip(picked[1]) + "'";
+	if (maxAttachmentBytes > 0 && size > maxAttachmentBytes)
+	{
+		return new string[] { "FILE_TOO_LARGE", "the file " + name + " is " + Megabytes(size) + " MB. The limit is " + Megabytes(maxAttachmentBytes) + " MB per file." };
+	}
+	string extension = picked[1].Contains(".") ? picked[1].Substring(picked[1].LastIndexOf('.') + 1).ToLowerInvariant() : "";
+	if (allowedExtensions != null && !allowedExtensions.Contains(extension))
+	{
+		return new string[] { "FILE_TYPE_NOT_ALLOWED", "files of type " + (extension.Length == 0 ? "(no extension)" : "." + extension) +
+			" can't be imported. Allowed: " + string.Join(", ", allowedExtensions.OrderBy(e => e, StringComparer.Ordinal).Select(e => "." + e)) + "." };
+	}
+	return null;
+}
+
+// How a cell names a picked file: file:<MD5>:<file name>. The import stores the file and
+// puts in the id of its File.
+string FileToken(string[] picked)
+{
+	return FileTokenPrefix + picked[2] + ":" + picked[1];
+}
+
+string TokenName(string token)
+{
+	return token.StartsWith(FileTokenPrefix, StringComparison.Ordinal) && token.Length > FileTokenPrefix.Length + 33 ? token.Substring(FileTokenPrefix.Length + 33) : token;
+}
+
+// Whether a picked file is the File an item has: the same name and the same content.
+bool SameFile(string token, XmlElement file)
+{
+	return file != null && token.StartsWith(FileTokenPrefix, StringComparison.Ordinal) && token.Length > FileTokenPrefix.Length + 33 &&
+		string.Equals(token.Substring(FileTokenPrefix.Length, 32), Text(file, "checksum"), StringComparison.OrdinalIgnoreCase) &&
+		TokenName(token) == Text(file, "filename");
+}
+
+// Reads the Files that items point at, for those not known yet. A File the caller can't
+// read is kept as null.
+void LoadFiles(IEnumerable<string> ids)
+{
+	List<string> wanted = ids.Where(id => IsId(id) && !fileCache.ContainsKey(id)).Distinct().ToList();
+	for (int start = 0; start < wanted.Count; start += IdChunk)
+	{
+		foreach (XmlElement file in TryQuery(
+			"<Item type=\"File\" action=\"get\" select=\"filename,checksum,file_size\" idlist=\"" + string.Join(",", wanted.Skip(start).Take(IdChunk)) + "\"/>") ?? new List<XmlElement>())
+		{
+			fileCache[file.GetAttribute("id")] = file;
+		}
+	}
+	foreach (string id in wanted.Where(id => !fileCache.ContainsKey(id)))
+	{
+		fileCache[id] = null;
+	}
+}
+
+XmlElement FileOf(string id)
+{
+	XmlElement file;
+	return id != null && fileCache.TryGetValue(id, out file) ? file : null;
+}
+
+// The name of the File with the id, or the id when it can't be read.
+string FileNameOfItem(string id)
+{
+	XmlElement file = FileOf(id);
+	return file != null ? Text(file, "filename") : id ?? "";
+}
+
+// What concerns the picked files as a whole: their number and size, and the ones no cell names.
+void CheckPickedFiles()
+{
+	List<string[]> used = usedPicked.Select(index => pickedFiles[index]).GroupBy(FileToken).Select(group => group.First()).ToList();
+	long total = used.Sum(picked => long.Parse(picked[3], CultureInfo.InvariantCulture));
+	if (maxAttachments > 0 && used.Count > maxAttachments)
+	{
+		UploadIssue(true, "TOO_MANY_FILES", "The workbook names " + used.Count + " files. The limit is " + maxAttachments + " files for one import; split the workbook.", null, null);
+	}
+	if (maxAttachmentsBytes > 0 && total > maxAttachmentsBytes)
+	{
+		UploadIssue(true, "FILES_TOO_LARGE", "The files the workbook names take " + Megabytes(total) + " MB. The limit is " + Megabytes(maxAttachmentsBytes) + " MB for one import; split the workbook.", null, null);
+	}
+	List<string> unused = Enumerable.Range(0, pickedFiles.Count).Where(index => !usedPicked.Contains(index)).Select(index => pickedFiles[index][0]).ToList();
+	if (unused.Count > 0)
+	{
+		UploadIssue(false, "FILE_UNUSED", (unused.Count == 1 ? "1 picked file is" : unused.Count + " picked files are") +
+			" not named in the workbook, and are not imported: " + Clip(string.Join(", ", unused.Take(10))) + (unused.Count > 10 ? ", ..." : "") + ".", null, null);
+	}
+}
+
+// ---------------------------------------------------------------------------------
+// The result
+// ---------------------------------------------------------------------------------
+
+void UploadIssue(bool isError, string code, string message, string sheetName, string columnId)
+{
+	Newtonsoft.Json.Linq.JObject issue = new Newtonsoft.Json.Linq.JObject();
+	issue.Add("severity", isError ? "error" : "warning");
+	issue.Add("code", code);
+	issue.Add("message", message);
+	if (sheetName != null)
+	{
+		issue.Add("sheet", sheetName);
+	}
+	if (columnId != null)
+	{
+		issue.Add("column", columnId);
+	}
+	uploadIssues.Add(issue);
+}
+
+string Reject(string code, string message)
+{
+	UploadIssue(true, code, message, null, null);
+	return "rejected";
+}
+
+bool HasUploadErrors()
+{
+	return uploadIssues.Any(i => (string)i["severity"] == "error");
+}
+
+string Finish(string status)
+{
+	if (status != "validated")
+	{
+		sheetResults = new Newtonsoft.Json.Linq.JArray();
+	}
+	Newtonsoft.Json.Linq.JObject totals = new Newtonsoft.Json.Linq.JObject();
+	foreach (string name in new string[] { "rows", "new", "update", "none", "delete", "error", "errors", "warnings" })
+	{
+		totals.Add(name, sheetResults.Sum(s => (int)s["totals"][name]));
+	}
+	totals["errors"] = (int)totals["errors"] + uploadIssues.Count(i => (string)i["severity"] == "error");
+	totals["warnings"] = (int)totals["warnings"] + uploadIssues.Count(i => (string)i["severity"] == "warning");
+
+	Newtonsoft.Json.Linq.JObject stats = new Newtonsoft.Json.Linq.JObject();
+	stats.Add("elapsedMs", clock.ElapsedMilliseconds);
+	stats.Add("requests", queryCount);
+
+	Newtonsoft.Json.Linq.JObject result = new Newtonsoft.Json.Linq.JObject();
+	result.Add("formatVersion", FormatVersion);
+	result.Add("status", status);
+	result.Add("job", (Newtonsoft.Json.Linq.JToken)jobResult ?? Newtonsoft.Json.Linq.JValue.CreateNull());
+	result.Add("database", inn.getConnection().GetDatabaseName());
+	result.Add("limits", (Newtonsoft.Json.Linq.JToken)limitsResult ?? Newtonsoft.Json.Linq.JValue.CreateNull());
+	result.Add("definitionChanged", definitionChanged);
+	result.Add("issues", uploadIssues);
+	result.Add("sheets", sheetResults);
+	result.Add("totals", totals);
+	result.Add("stats", stats);
+	return result.ToString(Newtonsoft.Json.Formatting.None);
+}
+
+// ---------------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------------
+
+// An input property of the Method, trimmed; empty when it was not given.
+string Input(string name)
+{
+	return (this.getProperty(name, "") ?? "").Trim();
+}
+
+bool IsId(string value)
+{
+	return System.Text.RegularExpressions.Regex.IsMatch(value ?? "", "^[0-9A-Fa-f]{32}$");
+}
+
+// Reads JSON text. Text that looks like a date stays text, and anything after the
+// first value is refused.
+Newtonsoft.Json.Linq.JToken ParseJson(string text)
+{
+	using (System.IO.StringReader source = new System.IO.StringReader(text))
+	using (Newtonsoft.Json.JsonTextReader reader = new Newtonsoft.Json.JsonTextReader(source))
+	{
+		reader.DateParseHandling = Newtonsoft.Json.DateParseHandling.None;
+		reader.MaxDepth = MaxJsonDepth;
+		Newtonsoft.Json.Linq.JToken token = Newtonsoft.Json.Linq.JToken.ReadFrom(reader);
+		while (reader.Read())
+		{
+			if (reader.TokenType != Newtonsoft.Json.JsonToken.Comment)
+			{
+				throw new FormatException("Unexpected text after the JSON value.");
+			}
+		}
+		return token;
+	}
+}
+
+// A property of a JSON object as text, whatever the token is; null when it is not there,
+// is null, or is not a single value.
+string Str(Newtonsoft.Json.Linq.JToken parent, string name)
+{
+	Newtonsoft.Json.Linq.JObject owner = parent as Newtonsoft.Json.Linq.JObject;
+	Newtonsoft.Json.Linq.JValue value = owner == null ? null : owner[name] as Newtonsoft.Json.Linq.JValue;
+	if (value == null || value.Value == null)
+	{
+		return null;
+	}
+	return value.Type == Newtonsoft.Json.Linq.JTokenType.Boolean ? ((bool)value ? "true" : "false") : Convert.ToString(value.Value, CultureInfo.InvariantCulture);
+}
+
+bool JsonFlag(Newtonsoft.Json.Linq.JToken parent, string name)
+{
+	return Str(parent, name) == "true";
+}
+
+List<string> StringArray(Newtonsoft.Json.Linq.JToken parent, string name)
+{
+	Newtonsoft.Json.Linq.JObject owner = parent as Newtonsoft.Json.Linq.JObject;
+	Newtonsoft.Json.Linq.JArray array = owner == null ? null : owner[name] as Newtonsoft.Json.Linq.JArray;
+	List<string> texts = new List<string>();
+	foreach (Newtonsoft.Json.Linq.JToken entry in array ?? new Newtonsoft.Json.Linq.JArray())
+	{
+		Newtonsoft.Json.Linq.JValue value = entry as Newtonsoft.Json.Linq.JValue;
+		if (value != null && value.Value != null)
+		{
+			texts.Add(Convert.ToString(value.Value, CultureInfo.InvariantCulture));
+		}
+	}
+	return texts;
+}
+
+List<Newtonsoft.Json.Linq.JObject> Columns(Newtonsoft.Json.Linq.JObject sheetDef)
+{
+	return ((Newtonsoft.Json.Linq.JArray)sheetDef["columns"]).Cast<Newtonsoft.Json.Linq.JObject>().ToList();
+}
+
+// The names in a comma-separated list, without blanks.
+List<string> SplitList(string text)
+{
+	return (text ?? "").Split(',').Select(part => part.Trim()).Where(part => part.Length > 0).Distinct().ToList();
+}
+
+bool SameSet(IEnumerable<string> a, IEnumerable<string> b)
+{
+	return new HashSet<string>(a, StringComparer.OrdinalIgnoreCase).SetEquals(b);
+}
+
+string JoinNumbers(IEnumerable<int> numbers)
+{
+	List<int> sorted = numbers.OrderBy(n => n).ToList();
+	return sorted.Count <= 10
+		? string.Join(", ", sorted)
+		: string.Join(", ", sorted.Take(10)) + " and " + (sorted.Count - 10) + " more";
+}
+
+// A number as text without an exponent or a trailing ".0", where it has neither.
+string NumberText(double number)
+{
+	return Math.Abs(number) < 1e15 && number == Math.Floor(number)
+		? ((long)number).ToString(CultureInfo.InvariantCulture)
+		: number.ToString("R", CultureInfo.InvariantCulture);
+}
+
+string Megabytes(long bytes)
+{
+	return (bytes / 1048576.0).ToString("0.0", CultureInfo.InvariantCulture);
+}
+
+// A value as it is quoted in a message: cut to a length a message can carry.
+string Clip(string value)
+{
+	value = (value ?? "").Replace("\r", " ").Replace("\n", " ");
+	return value.Length > MessageValueLength ? value.Substring(0, MessageValueLength - 3) + "..." : value;
+}
+
+// Runs one AML query as the caller and returns the items found. An answer that finds
+// nothing is an empty result here, not an error.
+List<XmlElement> Query(string aml)
+{
+	Item response = inn.applyAML("<AML>" + aml + "</AML>");
+	queryCount++;
+	List<XmlElement> items = new List<XmlElement>();
+	if (response.isError())
+	{
+		if (response.isEmpty())
+		{
+			return items;
+		}
+		throw new ApplicationException(response.getErrorString());
+	}
+	foreach (XmlNode item in response.dom.SelectNodes("//Result/Item"))
+	{
+		items.Add((XmlElement)item);
+	}
+	return items;
+}
+
+// The same, for a query that may be refused: null when the server answers with an error.
+List<XmlElement> TryQuery(string aml)
+{
+	try
+	{
+		return Query(aml);
+	}
+	catch (ApplicationException)
+	{
+		return null;
+	}
+}
+
+// Calls a server action in the caller's session and returns its Result element, or
+// null when the action failed.
+XmlNode CallServer(string action, string body)
+{
+	XmlDocument request = inn.newXMLDocument();
+	XmlDocument response = inn.newXMLDocument();
+	request.LoadXml(body);
+	response.LoadXml("<Empty/>");
+	queryCount++;
+	try
+	{
+		inn.getConnection().CallAction(action, request, response);
+	}
+	catch (Exception)
+	{
+		return null;
+	}
+	if (response.SelectSingleNode("//*[local-name()='Fault']") != null)
+	{
+		return null;
+	}
+	return response.SelectSingleNode("//Result");
+}
+
+// The value of a property; for an item property that came back as a nested item, its id.
+string Text(XmlElement item, string name)
+{
+	XmlElement value = item[name];
+	if (value == null)
+	{
+		return "";
+	}
+	XmlElement nested = value["Item"];
+	return nested == null ? value.InnerText : nested.GetAttribute("id");
+}
+
+string Attribute(XmlElement item, string name, string attribute)
+{
+	XmlElement value = item[name];
+	return value == null ? "" : value.GetAttribute(attribute);
+}
+
+bool Flag(XmlElement item, string name)
+{
+	return Text(item, name) == "1";
+}
+
+int? Number(XmlElement item, string name)
+{
+	int number;
+	return int.TryParse(Text(item, name), NumberStyles.Integer, CultureInfo.InvariantCulture, out number) ? (int?)number : null;
+}
+
+string Xml(string value)
+{
+	return value.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;").Replace("'", "&apos;");
+}
+
+// Ids as the values of an AML "in" condition.
+string IdList(IEnumerable<string> ids)
+{
+	return string.Join(",", ids.Where(IsId).Select(id => "'" + id + "'"));
+}

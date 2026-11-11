@@ -1,0 +1,242 @@
+﻿<AML>
+ <Item type="Form" id="51D2F7CB8513ECDB5CD1D9A6843ABD60" action="add">
+  <height>245</height>
+  <stylesheet><![CDATA[../styles/default.css]]></stylesheet>
+  <width>699</width>
+  <name>FRG_MassCreateEdit_Config</name>
+  <Relationships>
+   <Item type="Body" id="B970785029CD777831593AE9C3C351E5" action="add">
+    <bg_color>#FFFFFF</bg_color>
+    <sort_order>128</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit_Config" type="Form">51D2F7CB8513ECDB5CD1D9A6843ABD60</source_id>
+    <Relationships>
+     <Item type="Field" id="CD2A5A723F4FE217EF7EBCB11D1E3ABA" action="add">
+      <border_width>0</border_width>
+      <display_length>160</display_length>
+      <display_length_unit>px</display_length_unit>
+      <field_type>text</field_type>
+      <font_color>#333333</font_color>
+      <font_family>arial, helvetica, sans-serif</font_family>
+      <font_size>8pt</font_size>
+      <font_weight>bold</font_weight>
+      <is_disabled>0</is_disabled>
+      <is_visible>1</is_visible>
+      <label xml:lang="en">Largest File to Attach (MB)</label>
+      <label_position>top</label_position>
+      <list_no_blank>0</list_no_blank>
+      <propertytype_id keyed_name="max_attachment_mb" type="Property">250E37A9EC60D5E693E31472285106E3</propertytype_id>
+      <show_help>1</show_help>
+      <sort_order>640</sort_order>
+      <source_id keyed_name="B970785029CD777831593AE9C3C351E5" type="Body">B970785029CD777831593AE9C3C351E5</source_id>
+      <tab_index>640</tab_index>
+      <tab_stop>1</tab_stop>
+      <text_align>left</text_align>
+      <x>10</x>
+      <y>100</y>
+      <name>max_attachment_mb</name>
+     </Item>
+     <Item type="Field" id="9AC3B3A28FCE4E089EA428E2B7634836" action="add">
+      <border_width>0</border_width>
+      <display_length>160</display_length>
+      <display_length_unit>px</display_length_unit>
+      <field_type>text</field_type>
+      <font_color>#333333</font_color>
+      <font_family>arial, helvetica, sans-serif</font_family>
+      <font_size>8pt</font_size>
+      <font_weight>bold</font_weight>
+      <is_disabled>0</is_disabled>
+      <is_visible>1</is_visible>
+      <label xml:lang="en">Total Size of Files per Import (MB)</label>
+      <label_position>top</label_position>
+      <list_no_blank>0</list_no_blank>
+      <propertytype_id keyed_name="max_attachments_total_mb" type="Property">9B0F68C72CF53A407FC25E53CC2AF962</propertytype_id>
+      <show_help>1</show_help>
+      <sort_order>768</sort_order>
+      <source_id keyed_name="B970785029CD777831593AE9C3C351E5" type="Body">B970785029CD777831593AE9C3C351E5</source_id>
+      <tab_index>768</tab_index>
+      <tab_stop>1</tab_stop>
+      <text_align>left</text_align>
+      <x>200</x>
+      <y>100</y>
+      <name>max_attachments_total_mb</name>
+     </Item>
+     <Item type="Field" id="27804A29B5CD8D1CF0BE3FC6621BB799" action="add">
+      <border_width>0</border_width>
+      <display_length>160</display_length>
+      <display_length_unit>px</display_length_unit>
+      <field_type>text</field_type>
+      <font_color>#333333</font_color>
+      <font_family>arial, helvetica, sans-serif</font_family>
+      <font_size>8pt</font_size>
+      <font_weight>bold</font_weight>
+      <is_disabled>0</is_disabled>
+      <is_visible>1</is_visible>
+      <label xml:lang="en">Files per Import</label>
+      <label_position>top</label_position>
+      <list_no_blank>0</list_no_blank>
+      <propertytype_id keyed_name="max_attachments" type="Property">57F57E2BBE8E61252EE7D7EC1FB89647</propertytype_id>
+      <show_help>1</show_help>
+      <sort_order>896</sort_order>
+      <source_id keyed_name="B970785029CD777831593AE9C3C351E5" type="Body">B970785029CD777831593AE9C3C351E5</source_id>
+      <tab_index>896</tab_index>
+      <tab_stop>1</tab_stop>
+      <text_align>left</text_align>
+      <x>390</x>
+      <y>100</y>
+      <name>max_attachments</name>
+     </Item>
+     <Item type="Field" id="E26CA4C05FC291A9F3C365422B672AFD" action="add">
+      <border_width>0</border_width>
+      <display_length>540</display_length>
+      <display_length_unit>px</display_length_unit>
+      <field_type>text</field_type>
+      <font_color>#333333</font_color>
+      <font_family>arial, helvetica, sans-serif</font_family>
+      <font_size>8pt</font_size>
+      <font_weight>bold</font_weight>
+      <is_disabled>0</is_disabled>
+      <is_visible>1</is_visible>
+      <label xml:lang="en">Allowed File Extensions</label>
+      <label_position>top</label_position>
+      <list_no_blank>0</list_no_blank>
+      <propertytype_id keyed_name="allowed_extensions" type="Property">0066876BC9A527ED84194973D0885A00</propertytype_id>
+      <show_help>1</show_help>
+      <sort_order>1024</sort_order>
+      <source_id keyed_name="B970785029CD777831593AE9C3C351E5" type="Body">B970785029CD777831593AE9C3C351E5</source_id>
+      <tab_index>1024</tab_index>
+      <tab_stop>1</tab_stop>
+      <text_align>left</text_align>
+      <x>10</x>
+      <y>145</y>
+      <name>allowed_extensions</name>
+     </Item>
+     <Item type="Field" id="BA88413D2FE4912EF269BEFF16882D15" action="add">
+      <border_width>0</border_width>
+      <display_length>160</display_length>
+      <display_length_unit>px</display_length_unit>
+      <field_type>text</field_type>
+      <font_color>#333333</font_color>
+      <font_family>arial, helvetica, sans-serif</font_family>
+      <font_size>8pt</font_size>
+      <font_weight>bold</font_weight>
+      <is_disabled>0</is_disabled>
+      <is_visible>1</is_visible>
+      <label xml:lang="en">Items per Import Request</label>
+      <label_position>top</label_position>
+      <list_no_blank>0</list_no_blank>
+      <propertytype_id keyed_name="batch_size" type="Property">9DB18324EE81A3AB706A8F02FB21FE31</propertytype_id>
+      <show_help>1</show_help>
+      <sort_order>512</sort_order>
+      <source_id keyed_name="B970785029CD777831593AE9C3C351E5" type="Body">B970785029CD777831593AE9C3C351E5</source_id>
+      <tab_index>512</tab_index>
+      <tab_stop>1</tab_stop>
+      <text_align>left</text_align>
+      <x>390</x>
+      <y>55</y>
+      <name>batch_size</name>
+     </Item>
+     <Item type="Field" id="636E3CE80A1D6ABC64D79BEEA3647135" action="add">
+      <border_width>0</border_width>
+      <display_length>160</display_length>
+      <display_length_unit>px</display_length_unit>
+      <field_type>text</field_type>
+      <font_color>#333333</font_color>
+      <font_family>arial, helvetica, sans-serif</font_family>
+      <font_size>8pt</font_size>
+      <font_weight>bold</font_weight>
+      <is_disabled>0</is_disabled>
+      <is_visible>1</is_visible>
+      <label xml:lang="en">Import Requests at Once</label>
+      <label_position>top</label_position>
+      <list_no_blank>0</list_no_blank>
+      <propertytype_id keyed_name="parallel_batches" type="Property">553550C8DA310AC95F9235B035BEAD89</propertytype_id>
+      <show_help>1</show_help>
+      <sort_order>1152</sort_order>
+      <source_id keyed_name="B970785029CD777831593AE9C3C351E5" type="Body">B970785029CD777831593AE9C3C351E5</source_id>
+      <tab_index>1152</tab_index>
+      <tab_stop>1</tab_stop>
+      <text_align>left</text_align>
+      <x>10</x>
+      <y>190</y>
+      <name>parallel_batches</name>
+     </Item>
+     <Item type="Field" id="C62C20AFDE7D4B20767FAEB265759896" action="add">
+      <border_width>0</border_width>
+      <display_length>160</display_length>
+      <display_length_unit>px</display_length_unit>
+      <field_type>text</field_type>
+      <font_color>#333333</font_color>
+      <font_family>arial, helvetica, sans-serif</font_family>
+      <font_size>8pt</font_size>
+      <font_weight>bold</font_weight>
+      <is_disabled>0</is_disabled>
+      <is_visible>1</is_visible>
+      <label xml:lang="en">Maximum Upload Size (MB)</label>
+      <label_position>top</label_position>
+      <list_no_blank>0</list_no_blank>
+      <propertytype_id keyed_name="max_file_size_mb" type="Property">81DFB2F71A85D5712282AF35E482EDCC</propertytype_id>
+      <show_help>1</show_help>
+      <sort_order>384</sort_order>
+      <source_id keyed_name="B970785029CD777831593AE9C3C351E5" type="Body">B970785029CD777831593AE9C3C351E5</source_id>
+      <tab_index>384</tab_index>
+      <tab_stop>1</tab_stop>
+      <text_align>left</text_align>
+      <x>200</x>
+      <y>55</y>
+      <name>max_file_size_mb</name>
+     </Item>
+     <Item type="Field" id="64AD5C629B65164DD442A02BA32B685D" action="add">
+      <border_width>0</border_width>
+      <display_length>160</display_length>
+      <display_length_unit>px</display_length_unit>
+      <field_type>text</field_type>
+      <font_color>#333333</font_color>
+      <font_family>arial, helvetica, sans-serif</font_family>
+      <font_size>8pt</font_size>
+      <font_weight>bold</font_weight>
+      <is_disabled>0</is_disabled>
+      <is_visible>1</is_visible>
+      <label xml:lang="en">Maximum Rows per Upload</label>
+      <label_position>top</label_position>
+      <list_no_blank>0</list_no_blank>
+      <propertytype_id keyed_name="max_rows" type="Property">8E9E524CE41708224893BC49A8ADC4F4</propertytype_id>
+      <show_help>1</show_help>
+      <sort_order>256</sort_order>
+      <source_id keyed_name="B970785029CD777831593AE9C3C351E5" type="Body">B970785029CD777831593AE9C3C351E5</source_id>
+      <tab_index>256</tab_index>
+      <tab_stop>1</tab_stop>
+      <text_align>left</text_align>
+      <x>10</x>
+      <y>55</y>
+      <name>max_rows</name>
+     </Item>
+     <Item type="Field" id="50A70C6C038F93BF354FFDF208CF8528" action="add">
+      <border_width>0</border_width>
+      <display_length>250</display_length>
+      <display_length_unit>px</display_length_unit>
+      <field_type>text</field_type>
+      <font_color>#333333</font_color>
+      <font_family>arial, helvetica, sans-serif</font_family>
+      <font_size>8pt</font_size>
+      <font_weight>bold</font_weight>
+      <is_disabled>0</is_disabled>
+      <is_visible>1</is_visible>
+      <label xml:lang="en">Name</label>
+      <label_position>top</label_position>
+      <list_no_blank>0</list_no_blank>
+      <propertytype_id keyed_name="name" type="Property">A0F1D0DA05E0642E2538F58DC5BCDED1</propertytype_id>
+      <show_help>1</show_help>
+      <sort_order>128</sort_order>
+      <source_id keyed_name="B970785029CD777831593AE9C3C351E5" type="Body">B970785029CD777831593AE9C3C351E5</source_id>
+      <tab_index>128</tab_index>
+      <tab_stop>1</tab_stop>
+      <text_align>left</text_align>
+      <x>10</x>
+      <y>10</y>
+      <name>name</name>
+     </Item>
+    </Relationships>
+   </Item>
+  </Relationships>
+ </Item>
+</AML>

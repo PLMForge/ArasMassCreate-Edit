@@ -1,0 +1,30 @@
+﻿<AML>
+ <Item type="CommandBarSection" id="876EA12A082B06D2B2169AB4FF020F7A" action="add">
+  <classification>Data Model</classification>
+  <location keyed_name="TOC" type="cui_Location">02A5F61EF1C94C41834486FA8D76B4E1</location>
+  <name>FRG_MassCreateEdit_TOC_Content</name>
+  <Relationships>
+   <Item type="CommandBarSectionItem" id="B6E973652F0B28972627E1D6EAAEE930" action="add">
+    <action>Add</action>
+    <related_id keyed_name="com.aras.innovator.cui_default.toc_FRG_MassCreateEdit_B4B39A3DE2CDAE4A67F87FCE6FA86BD5" type="CommandBarItem">B4B39A3DE2CDAE4A67F87FCE6FA86BD5</related_id>
+    <role keyed_name="FRG Mass Create &amp; Edit Viewers" type="Identity">77953FBC52F154425AD47525B82889E9</role>
+    <sort_order>256</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit_TOC_Content" type="CommandBarSection">876EA12A082B06D2B2169AB4FF020F7A</source_id>
+   </Item>
+   <Item type="CommandBarSectionItem" id="F8944FF22FDE8C3B0D5833F9FB159634" action="add">
+    <action>Add</action>
+    <related_id keyed_name="com.aras.innovator.cui_default.toc_FRG_MassCreateEdit_B4B39A3DE2CDAE4A67F87FCE6FA86BD5" type="CommandBarItem">B4B39A3DE2CDAE4A67F87FCE6FA86BD5</related_id>
+    <role keyed_name="FRG Mass Create &amp; Edit Users" type="Identity">0968F294F9A0FABFE9C38539EBA99EFE</role>
+    <sort_order>256</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit_TOC_Content" type="CommandBarSection">876EA12A082B06D2B2169AB4FF020F7A</source_id>
+   </Item>
+   <Item type="CommandBarSectionItem" id="FB367406CCE20C5C4F89544E81DFC43D" action="add">
+    <action>Add</action>
+    <related_id keyed_name="com.aras.innovator.cui_default.toc_FRG_MassCreateEdit_B4B39A3DE2CDAE4A67F87FCE6FA86BD5" type="CommandBarItem">B4B39A3DE2CDAE4A67F87FCE6FA86BD5</related_id>
+    <role keyed_name="Administrators" type="Identity">2618D6F5A90949BAA7E920D1B04C7EE1</role>
+    <sort_order>256</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit_TOC_Content" type="CommandBarSection">876EA12A082B06D2B2169AB4FF020F7A</source_id>
+   </Item>
+  </Relationships>
+ </Item>
+</AML>

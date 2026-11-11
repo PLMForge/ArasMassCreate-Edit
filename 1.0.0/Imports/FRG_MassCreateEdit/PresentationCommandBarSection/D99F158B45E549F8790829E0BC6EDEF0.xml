@@ -1,0 +1,31 @@
+﻿<AML>
+ <Item type="PresentationCommandBarSection" id="D99F158B45E549F8790829E0BC6EDEF0" action="add">
+  <related_id keyed_name="FRG_MassCreateEdit_PopupMenuItemGrid" type="CommandBarSection">
+   <Item type="CommandBarSection" id="B26130A03859E3849D6A2438ECFAC0FA" action="add">
+    <classification>Data Model</classification>
+    <description>Bulk Edit in the right-click menu of a search grid (Mass Create &amp; Edit).</description>
+    <location keyed_name="PopupMenuItemGrid" type="cui_Location">1DCBBA8DA6D14F37AD5A6FAA795058A3</location>
+    <name>FRG_MassCreateEdit_PopupMenuItemGrid</name>
+    <Relationships>
+     <Item type="CommandBarSectionItem" id="282D9ABA0C4A3C426FC93A2DE28DFCF0" action="add">
+      <action>Add</action>
+      <related_id keyed_name="FRG_MassCreateEdit.pmig_BulkEdit" type="CommandBarItem">0CBF2A09FC96729BB40654BF26781084</related_id>
+      <role keyed_name="Administrators" type="Identity">2618D6F5A90949BAA7E920D1B04C7EE1</role>
+      <sort_order>1750</sort_order>
+      <source_id keyed_name="FRG_MassCreateEdit_PopupMenuItemGrid" type="CommandBarSection">B26130A03859E3849D6A2438ECFAC0FA</source_id>
+     </Item>
+     <Item type="CommandBarSectionItem" id="7DE3BB13FCD26CC7EF200C468A1C8EE7" action="add">
+      <action>Add</action>
+      <related_id keyed_name="FRG_MassCreateEdit.pmig_BulkEdit" type="CommandBarItem">0CBF2A09FC96729BB40654BF26781084</related_id>
+      <role keyed_name="FRG Mass Create &amp; Edit Users" type="Identity">0968F294F9A0FABFE9C38539EBA99EFE</role>
+      <sort_order>1750</sort_order>
+      <source_id keyed_name="FRG_MassCreateEdit_PopupMenuItemGrid" type="CommandBarSection">B26130A03859E3849D6A2438ECFAC0FA</source_id>
+     </Item>
+    </Relationships>
+   </Item>
+  </related_id>
+  <role keyed_name="World" type="Identity">A73B655731924CD0B027E4F4D5FCC0A9</role>
+  <sort_order>11264</sort_order>
+  <source_id keyed_name="Global" type="PresentationConfiguration">5A87757EBFB7430C847CF4DF5ACA6F4E</source_id>
+ </Item>
+</AML>

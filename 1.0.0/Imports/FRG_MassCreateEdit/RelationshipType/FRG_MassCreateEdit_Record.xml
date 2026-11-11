@@ -1,0 +1,256 @@
+﻿<AML>
+ <Item type="RelationshipType" id="48D19A76DC975CD9D7E778A33CC08591" action="add" dependencyLevel="0">
+  <auto_search>1</auto_search>
+  <behavior>float</behavior>
+  <copy_permissions>0</copy_permissions>
+  <create_related>0</create_related>
+  <description>A record per row an import created, updated, deleted or failed.</description>
+  <hide_in_all>1</hide_in_all>
+  <inc_rel_key_name>1</inc_rel_key_name>
+  <inc_related_key_name>1</inc_related_key_name>
+  <is_list_type>0</is_list_type>
+  <label xml:lang="en">Records</label>
+  <new_show_related>0</new_show_related>
+  <related_notnull>0</related_notnull>
+  <related_option>2</related_option>
+  <relationship_id keyed_name="FRG_MassCreateEdit_Record" type="ItemType" name="FRG_MassCreateEdit_Record">
+   <Item type="ItemType" id="E22A909248A947D350ACF63F2FAA4B84" action="add">
+    <allow_private_permission>0</allow_private_permission>
+    <auto_search>0</auto_search>
+    <enforce_discovery>0</enforce_discovery>
+    <hide_where_used>0</hide_where_used>
+    <implementation_type>table</implementation_type>
+    <instance_data>FRG_MASSCREATEEDIT_RECORD</instance_data>
+    <is_dependent>0</is_dependent>
+    <is_relationship>1</is_relationship>
+    <is_versionable>0</is_versionable>
+    <revisions keyed_name="Default" type="Revision">7FE395DD8B9F4E1090756A34B733D75E</revisions>
+    <show_parameters_tab>1</show_parameters_tab>
+    <structure_view>tabs off</structure_view>
+    <unlock_on_logout>0</unlock_on_logout>
+    <use_src_access>0</use_src_access>
+    <name>FRG_MassCreateEdit_Record</name>
+    <Relationships>
+     <Item type="Property" id="6045FA09741802C8BD0FE33EBA8C86EF" action="add">
+      <column_alignment>left</column_alignment>
+      <column_width>85</column_width>
+      <data_source keyed_name="FRG_MassCreateEdit_RecordAction">9D8E5108EBF74E0F341384C38FFAD272</data_source>
+      <data_type>list</data_type>
+      <is_discoverable>1</is_discoverable>
+      <is_federated>0</is_federated>
+      <is_hidden>0</is_hidden>
+      <is_hidden2>0</is_hidden2>
+      <is_indexed>0</is_indexed>
+      <is_keyed>0</is_keyed>
+      <is_multi_valued>0</is_multi_valued>
+      <is_required>0</is_required>
+      <label xml:lang="en">Action</label>
+      <range_inclusive>0</range_inclusive>
+      <readonly>0</readonly>
+      <sort_order>30</sort_order>
+      <source_id keyed_name="FRG_MassCreateEdit_Record" type="ItemType" name="FRG_MassCreateEdit_Record">E22A909248A947D350ACF63F2FAA4B84</source_id>
+      <stored_length>32</stored_length>
+      <track_history>0</track_history>
+      <name>action</name>
+     </Item>
+     <Item type="Property" id="3C382D40AF7F1D60DDA1DD3E6E36113C" action="add">
+      <column_alignment>left</column_alignment>
+      <column_width>360</column_width>
+      <data_type>text</data_type>
+      <is_discoverable>1</is_discoverable>
+      <is_federated>0</is_federated>
+      <is_hidden>0</is_hidden>
+      <is_hidden2>0</is_hidden2>
+      <is_indexed>0</is_indexed>
+      <is_keyed>0</is_keyed>
+      <is_multi_valued>0</is_multi_valued>
+      <is_required>0</is_required>
+      <label xml:lang="en">Message</label>
+      <range_inclusive>0</range_inclusive>
+      <readonly>0</readonly>
+      <sort_order>60</sort_order>
+      <source_id keyed_name="FRG_MassCreateEdit_Record" type="ItemType" name="FRG_MassCreateEdit_Record">E22A909248A947D350ACF63F2FAA4B84</source_id>
+      <track_history>0</track_history>
+      <name>message</name>
+     </Item>
+     <Item type="Property" id="D830C68E715ECE454EF40BAF41D066C9" action="add">
+      <column_alignment>left</column_alignment>
+      <column_width>60</column_width>
+      <data_type>integer</data_type>
+      <is_discoverable>1</is_discoverable>
+      <is_federated>0</is_federated>
+      <is_hidden>0</is_hidden>
+      <is_hidden2>0</is_hidden2>
+      <is_indexed>0</is_indexed>
+      <is_keyed>0</is_keyed>
+      <is_multi_valued>0</is_multi_valued>
+      <is_required>0</is_required>
+      <label xml:lang="en">Row</label>
+      <range_inclusive>0</range_inclusive>
+      <readonly>0</readonly>
+      <sort_order>20</sort_order>
+      <source_id keyed_name="FRG_MassCreateEdit_Record" type="ItemType" name="FRG_MassCreateEdit_Record">E22A909248A947D350ACF63F2FAA4B84</source_id>
+      <track_history>0</track_history>
+      <name>row_number</name>
+     </Item>
+     <Item type="Property" id="C3A26304CCE32F925391C732FF1BDBD7" action="add">
+      <column_alignment>left</column_alignment>
+      <column_width>130</column_width>
+      <data_type>string</data_type>
+      <is_discoverable>1</is_discoverable>
+      <is_federated>0</is_federated>
+      <is_hidden>0</is_hidden>
+      <is_hidden2>0</is_hidden2>
+      <is_indexed>0</is_indexed>
+      <is_keyed>0</is_keyed>
+      <is_multi_valued>0</is_multi_valued>
+      <is_required>0</is_required>
+      <label xml:lang="en">Sheet</label>
+      <range_inclusive>0</range_inclusive>
+      <readonly>0</readonly>
+      <sort_order>10</sort_order>
+      <source_id keyed_name="FRG_MassCreateEdit_Record" type="ItemType" name="FRG_MassCreateEdit_Record">E22A909248A947D350ACF63F2FAA4B84</source_id>
+      <stored_length>64</stored_length>
+      <track_history>0</track_history>
+      <name>sheet_name</name>
+     </Item>
+     <Item type="Property" id="4062FB63B5E321A882F8C41B8DE714EA" action="add">
+      <column_alignment>left</column_alignment>
+      <data_type>string</data_type>
+      <is_discoverable>1</is_discoverable>
+      <is_federated>0</is_federated>
+      <is_hidden>1</is_hidden>
+      <is_hidden2>1</is_hidden2>
+      <is_indexed>0</is_indexed>
+      <is_keyed>0</is_keyed>
+      <is_multi_valued>0</is_multi_valued>
+      <is_required>0</is_required>
+      <label xml:lang="en">Item Config Id</label>
+      <range_inclusive>0</range_inclusive>
+      <readonly>0</readonly>
+      <sort_order>3210</sort_order>
+      <source_id keyed_name="FRG_MassCreateEdit_Record" type="ItemType" name="FRG_MassCreateEdit_Record">E22A909248A947D350ACF63F2FAA4B84</source_id>
+      <stored_length>32</stored_length>
+      <track_history>0</track_history>
+      <name>target_config_id</name>
+     </Item>
+     <Item type="Property" id="143B57B66C22ECF4B74C7B549EAB48C3" action="add">
+      <column_alignment>left</column_alignment>
+      <data_type>string</data_type>
+      <is_discoverable>1</is_discoverable>
+      <is_federated>0</is_federated>
+      <is_hidden>1</is_hidden>
+      <is_hidden2>1</is_hidden2>
+      <is_indexed>0</is_indexed>
+      <is_keyed>0</is_keyed>
+      <is_multi_valued>0</is_multi_valued>
+      <is_required>0</is_required>
+      <label xml:lang="en">Item Id</label>
+      <range_inclusive>0</range_inclusive>
+      <readonly>0</readonly>
+      <sort_order>3200</sort_order>
+      <source_id keyed_name="FRG_MassCreateEdit_Record" type="ItemType" name="FRG_MassCreateEdit_Record">E22A909248A947D350ACF63F2FAA4B84</source_id>
+      <stored_length>32</stored_length>
+      <track_history>0</track_history>
+      <name>target_id</name>
+     </Item>
+     <Item type="Property" id="2294E4FF7F4608A6E24AAF48BC6A4657" action="add">
+      <column_alignment>left</column_alignment>
+      <column_width>180</column_width>
+      <data_type>string</data_type>
+      <is_discoverable>1</is_discoverable>
+      <is_federated>0</is_federated>
+      <is_hidden>0</is_hidden>
+      <is_hidden2>0</is_hidden2>
+      <is_indexed>0</is_indexed>
+      <is_keyed>0</is_keyed>
+      <is_multi_valued>0</is_multi_valued>
+      <is_required>0</is_required>
+      <label xml:lang="en">Item</label>
+      <range_inclusive>0</range_inclusive>
+      <readonly>0</readonly>
+      <sort_order>50</sort_order>
+      <source_id keyed_name="FRG_MassCreateEdit_Record" type="ItemType" name="FRG_MassCreateEdit_Record">E22A909248A947D350ACF63F2FAA4B84</source_id>
+      <stored_length>128</stored_length>
+      <track_history>0</track_history>
+      <name>target_keyed_name</name>
+     </Item>
+     <Item type="Property" id="BCE3D40D249AAABF908E74DE2726A025" action="add">
+      <column_alignment>left</column_alignment>
+      <column_width>120</column_width>
+      <data_type>string</data_type>
+      <is_discoverable>1</is_discoverable>
+      <is_federated>0</is_federated>
+      <is_hidden>0</is_hidden>
+      <is_hidden2>0</is_hidden2>
+      <is_indexed>0</is_indexed>
+      <is_keyed>0</is_keyed>
+      <is_multi_valued>0</is_multi_valued>
+      <is_required>0</is_required>
+      <label xml:lang="en">ItemType</label>
+      <range_inclusive>0</range_inclusive>
+      <readonly>0</readonly>
+      <sort_order>40</sort_order>
+      <source_id keyed_name="FRG_MassCreateEdit_Record" type="ItemType" name="FRG_MassCreateEdit_Record">E22A909248A947D350ACF63F2FAA4B84</source_id>
+      <stored_length>32</stored_length>
+      <track_history>0</track_history>
+      <name>target_type</name>
+     </Item>
+     <Item type="Server Event" id="1D57A68D595A43538351D8055BF566F5" action="add">
+      <event_version>version_1</event_version>
+      <is_required>0</is_required>
+      <related_id keyed_name="FRG_MCE_Guard" type="Method">
+       <Item type="Method" action="get" select="id">
+        <name>FRG_MCE_Guard</name>
+       </Item>
+      </related_id>
+      <server_event>onBeforeAdd</server_event>
+      <sort_order>128</sort_order>
+      <source_id keyed_name="FRG_MassCreateEdit_Record" type="ItemType" name="FRG_MassCreateEdit_Record">E22A909248A947D350ACF63F2FAA4B84</source_id>
+     </Item>
+     <Item type="Server Event" id="46C8A88C86254F16A29DCD33CB1D43F7" action="add">
+      <event_version>version_1</event_version>
+      <is_required>0</is_required>
+      <related_id keyed_name="FRG_MCE_Guard" type="Method">
+       <Item type="Method" action="get" select="id">
+        <name>FRG_MCE_Guard</name>
+       </Item>
+      </related_id>
+      <server_event>onBeforeDelete</server_event>
+      <sort_order>384</sort_order>
+      <source_id keyed_name="FRG_MassCreateEdit_Record" type="ItemType" name="FRG_MassCreateEdit_Record">E22A909248A947D350ACF63F2FAA4B84</source_id>
+     </Item>
+     <Item type="Server Event" id="D747DD4782FD47E79E1D5C8487F9F188" action="add">
+      <event_version>version_1</event_version>
+      <is_required>0</is_required>
+      <related_id keyed_name="FRG_MCE_Guard" type="Method">
+       <Item type="Method" action="get" select="id">
+        <name>FRG_MCE_Guard</name>
+       </Item>
+      </related_id>
+      <server_event>onBeforeUpdate</server_event>
+      <sort_order>256</sort_order>
+      <source_id keyed_name="FRG_MassCreateEdit_Record" type="ItemType" name="FRG_MassCreateEdit_Record">E22A909248A947D350ACF63F2FAA4B84</source_id>
+     </Item>
+     <Item type="Can Add" id="33F7470D5F29400B8E97BCC5726C7855" action="add">
+      <can_add>1</can_add>
+      <related_id keyed_name="FRG Mass Create &amp; Edit Steps" type="Identity">B56E4D1B3F4DDC99AECEC5AFB250BF63</related_id>
+      <sort_order>128</sort_order>
+      <source_id keyed_name="FRG_MassCreateEdit_Record" type="ItemType" name="FRG_MassCreateEdit_Record">E22A909248A947D350ACF63F2FAA4B84</source_id>
+     </Item>
+     <Item type="Allowed Permission" id="ED334982BCCC4266A024B5899290A3E3" action="add">
+      <is_default>1</is_default>
+      <related_id keyed_name="FRG_MassCreateEdit_Rows" type="Permission">2979715C4BCAE5D1854312C48BB424C4</related_id>
+      <sort_order>128</sort_order>
+      <source_id keyed_name="FRG_MassCreateEdit_Record" type="ItemType" name="FRG_MassCreateEdit_Record">E22A909248A947D350ACF63F2FAA4B84</source_id>
+     </Item>
+    </Relationships>
+   </Item>
+  </relationship_id>
+  <sort_order>256</sort_order>
+  <source_id keyed_name="FRG_MassCreateEdit" type="ItemType" name="FRG_MassCreateEdit">406C27A427A7CC469825A8601870AF8E</source_id>
+  <name>FRG_MassCreateEdit_Record</name>
+ </Item>
+ <Item type="View" action="delete" where="source_id='E22A909248A947D350ACF63F2FAA4B84'" />
+ <Item type="Form" action="delete" where="name='FRG_MassCreateEdit_Record'" />
+</AML>

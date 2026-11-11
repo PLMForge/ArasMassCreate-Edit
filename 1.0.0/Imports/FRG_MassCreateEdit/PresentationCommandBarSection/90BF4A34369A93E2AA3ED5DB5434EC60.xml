@@ -1,0 +1,31 @@
+﻿<AML>
+ <Item type="PresentationCommandBarSection" id="90BF4A34369A93E2AA3ED5DB5434EC60" action="add">
+  <related_id keyed_name="FRG_MassCreateEdit_SearchView_CommandBar" type="CommandBarSection">
+   <Item type="CommandBarSection" id="78A8224A95D6DA4D279D419DDE401261" action="add">
+    <classification>Data Model</classification>
+    <description>Bulk Edit button on the toolbar of a search grid (Mass Create &amp; Edit).</description>
+    <location keyed_name="SearchView.CommandBar" type="cui_Location">FE8F8096AC224457A99373C81C9E451F</location>
+    <name>FRG_MassCreateEdit_SearchView_CommandBar</name>
+    <Relationships>
+     <Item type="CommandBarSectionItem" id="3D2C115EDC45BBD1293BDF820CD236FA" action="add">
+      <action>Add</action>
+      <related_id keyed_name="FRG_MassCreateEdit.searchview.commandbar.bulkedit" type="CommandBarItem">8F9E7A2CA53E5C5C22EA7F8B132E7767</related_id>
+      <role keyed_name="Administrators" type="Identity">2618D6F5A90949BAA7E920D1B04C7EE1</role>
+      <sort_order>2240</sort_order>
+      <source_id keyed_name="FRG_MassCreateEdit_SearchView_CommandBar" type="CommandBarSection">78A8224A95D6DA4D279D419DDE401261</source_id>
+     </Item>
+     <Item type="CommandBarSectionItem" id="4A4F19D68D070774C4125FB485A576B0" action="add">
+      <action>Add</action>
+      <related_id keyed_name="FRG_MassCreateEdit.searchview.commandbar.bulkedit" type="CommandBarItem">8F9E7A2CA53E5C5C22EA7F8B132E7767</related_id>
+      <role keyed_name="FRG Mass Create &amp; Edit Users" type="Identity">0968F294F9A0FABFE9C38539EBA99EFE</role>
+      <sort_order>2240</sort_order>
+      <source_id keyed_name="FRG_MassCreateEdit_SearchView_CommandBar" type="CommandBarSection">78A8224A95D6DA4D279D419DDE401261</source_id>
+     </Item>
+    </Relationships>
+   </Item>
+  </related_id>
+  <role keyed_name="World" type="Identity">A73B655731924CD0B027E4F4D5FCC0A9</role>
+  <sort_order>11392</sort_order>
+  <source_id keyed_name="Global" type="PresentationConfiguration">5A87757EBFB7430C847CF4DF5ACA6F4E</source_id>
+ </Item>
+</AML>

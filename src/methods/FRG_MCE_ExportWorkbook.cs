@@ -1,0 +1,826 @@
+// Method:  FRG_MCE_ExportWorkbook
+// Type:    server Method, C#
+// Purpose: the server side of generating the workbook of a Mass Create & Edit job.
+//          The workbook itself is built in the browser, so generating takes two calls:
+//
+//   step = begin     checks that the caller may generate, issues a new workbook token and
+//                    records on the job what the workbook is generated from. Returns what
+//                    the browser needs to build the file.
+//   step = complete  takes the File item the browser stored the workbook in, attaches it
+//                    to the job and moves the job to Generated.
+//
+// Input (properties of the context item):
+//   job_id   id of the job
+//   step     "begin" or "complete"
+//   options  (begin, optional) the export options chosen on the Form, as JSON:
+//            { "version": 2, "targets": [ { "itemTypeId": "...", "omit": [ "column id", ... ] } ],
+//              "sheets": [ { "relationshipTypeId": "...", "matchKey": [ "column id", ... ], "omit": [ ... ],
+//                            "layout": "indented" } ] }
+//            layout is allowed on Part BOM only. The browser turns such a sheet into ordinary rows when it
+//            reads the workbook, so nothing after this step depends on it.
+//            Options of a job with one target may have "omit" at the top instead of "targets".
+//            Each relationship sheet belongs to the target that is its source ItemType.
+//            Without it, the options stored on the job (export_options) are used. This step
+//            is the only writer of export_options: the Form passes the options here and
+//            does not save them itself. "omit" names the columns the user left out of the
+//            main sheet and of a relationship sheet. It is stored with the options and
+//            otherwise left to the Form, which builds the workbook without those columns:
+//            the schema returned here, and the check of an upload, keep every column.
+//   token    (complete) the token that begin returned
+//   file_id  (complete) id of the File item that holds the workbook
+//
+// Output: a result whose text is JSON
+//   begin:    { job: { id, number, state }, token, limits: { maxRows, maxFileSizeMb },
+//               targets: [ { itemTypeId, prefillIds: [...] } ], schema: { ... } }
+//             targets lists the job's targets in the order of their main sheets, with the items
+//             to pre-fill on each.
+//             schema is the answer of FRG_MCE_GetTemplateSchema for the job, unchanged.
+//   complete: { job: { id, number, state, exportedOn }, fileId }
+//
+// Both steps refuse the call unless
+//   - the caller created the job (only its creator runs a job),
+//   - the job is Draft, Generated or Validated,
+//   - the job is not locked (it is not being edited),
+//   - each of the job's target ItemTypes is on the allow-list of the configuration item,
+//     for an identity of the caller (or for everyone).
+//
+// The targets: a job's targets property lists its target ItemTypes, in the order of their
+// main sheets, each with the items to pre-fill (see JobTargets). A job without it has one
+// target, target_itemtype, with the items of prefill_idlist. The items to pre-fill on all
+// main sheets together count against the row limit.
+//
+// What begin writes:
+//   - export_options, when the call brought options. Stored options are checked like
+//     options given to the call, so a value set by hand on a Draft job gets no further.
+//   - the job's Sheet rows, one per relationship sheet of the export options: begin adds,
+//     changes and deletes Sheet rows until they say the same as the options. From here on
+//     the Sheet rows are the record of what the workbook holds. A job that has no export
+//     options at all keeps the Sheet rows it has.
+//   - workbook_token  a new random token. The workbook carries it, and an upload is only
+//                     accepted with the job's current token, so every earlier workbook of
+//                     the job stops being accepted here.
+//   - key_properties  the names of the first target's Unique properties, separated by commas
+//   - one Sheet row per target (item_type set, no relationship), whose match_properties
+//     holds the names of that target's Unique properties and whose sort_order is its place
+//     among the main sheets (see SyncMainRows)
+//   - metadata_hash   the definitionHash of the schema
+//   - export_file and exported_on are emptied: the earlier workbook is no longer valid.
+//   - upload_file, results_file and the counts (qty_*) are emptied: an upload or import
+//     of an earlier workbook no longer applies
+//   - the Files of export_file, upload_file and results_file are deleted, when the job is
+//     past Draft, the caller stored them and no job points to them any more (see
+//     ReplaceableFiles; the delete is the one write made as Super User). So are the Files
+//     an import stored for the job and did not link to an item (staged_files, emptied). The job Form asks
+//     before generating again deletes an uploaded workbook and its validation result.
+//   So whatever the job held before, from a Draft the user could edit or from an earlier
+//   run, nothing of it reaches the new workbook or its import.
+//   - match_properties of each Sheet row, when it differs from the match key the schema
+//     uses (a row without one gets the default; the parent's key is always part of it)
+//   - the job goes to Generated: from Draft, so that only the steps may change it from
+//     here on, and from Validated, because what was validated was an earlier workbook
+//
+// What complete writes: export_file and exported_on. It takes only a job that is
+// Generated, which begin left it in: a Draft job, whose properties its creator may have set
+// by hand, gets no workbook attached without begin.
+//
+// Each call is one transaction: when a step fails, nothing it wrote is kept.
+// Everything is read with the caller's own permissions. The job's own properties, its
+// state and its Sheet rows are written with the identity "FRG Mass Create & Edit Steps",
+// which only the Methods of Mass Create & Edit take on, for those writes only: nothing
+// else may change them. Once a job is Generated, only that identity (and administrators)
+// may update it at all; a Draft job is open to its creator and owner, and begin
+// overwrites everything the steps own. The Method runs no SQL.
+
+Innovator inn = this.getInnovator();
+
+const string JobType = "FRG_MassCreateEdit";
+// The identity "FRG Mass Create & Edit Steps".
+const string StepsIdentityId = "B56E4D1B3F4DDC99AECEC5AFB250BF63";
+// Taken on only to delete the Files that begin detached from the job (DeleteReplacedFiles).
+const string SuperUserIdentityId = "6B14D33C4A7D41C188CCF2BC15BD01A3";
+const string NeutralDateFormat = "yyyy-MM-ddTHH:mm:ss";
+// The one relationship that can be written as an indented structure.
+const string PartBomRelationshipId = "159C6D88795B4A86864420863466F728";
+string[] openStates = new string[] { "Draft", "Generated", "Validated" };
+
+try
+{
+	string step = Input("step");
+	if (step == "begin")
+	{
+		return inn.newResult(Begin());
+	}
+	if (step == "complete")
+	{
+		return inn.newResult(Complete());
+	}
+	throw new ApplicationException("FRG_MCE_ExportWorkbook: the 'step' property must be 'begin' or 'complete'.");
+}
+catch (ApplicationException ex)
+{
+	return inn.newError(ex.Message);
+}
+
+// ---------------------------------------------------------------------------------
+// The two steps
+// ---------------------------------------------------------------------------------
+
+string Begin()
+{
+	XmlElement job = ReadJob();
+	string jobId = job.GetAttribute("id");
+	XmlElement config = ReadConfiguration();
+	CheckAllowed(job, config);
+
+	// The targets and the items to pre-fill on each main sheet. The browser reads the items,
+	// as the user; here they are only counted, all main sheets together.
+	List<Tuple<string, List<string>>> targets = JobTargets(job);
+	int prefillCount = targets.Sum(target => target.Item2.Count);
+	int maxRows = Number(config, "max_rows") ?? 0;
+	if (maxRows > 0 && prefillCount > maxRows)
+	{
+		throw new ApplicationException(
+			"The job has " + prefillCount + " items to pre-fill, and a workbook takes at most " + maxRows +
+			" rows on its main " + (targets.Count == 1 ? "sheet" : "sheets together") +
+			". Remove items from the job's selection, or ask an administrator to raise the limit.");
+	}
+
+	// The relationship sheets the user picked on the Form become the job's Sheet rows.
+	string givenOptions = Input("options");
+	SyncSheetRows(jobId, givenOptions.Length > 0 ? givenOptions : Text(job, "export_options").Trim());
+
+	// The schema of the job's workbook, with the match key of each of its Sheet rows.
+	Item schemaResult = inn.applyMethod("FRG_MCE_GetTemplateSchema", "<job_id>" + jobId + "</job_id>");
+	if (schemaResult.isError())
+	{
+		throw new ApplicationException(schemaResult.getErrorString());
+	}
+	string schemaText = schemaResult.getResult();
+	Newtonsoft.Json.Linq.JObject schema = ParseJson(schemaText);
+	Newtonsoft.Json.Linq.JArray sheets = (Newtonsoft.Json.Linq.JArray)schema["sheets"];
+	List<Newtonsoft.Json.Linq.JToken> mainSheets = sheets.Where(sheet => (string)sheet["kind"] == "main").ToList();
+	if (mainSheets.Count != targets.Count)
+	{
+		throw new ApplicationException("FRG_MCE_ExportWorkbook: the schema of the job has " + mainSheets.Count + " main sheets for " + targets.Count + " targets.");
+	}
+	// The key of each main sheet: the names of its ItemType's Unique properties.
+	List<string> mainKeys = new List<string>();
+	for (int index = 0; index < targets.Count; index++)
+	{
+		if (targets[index].Item2.Count > 0 && (bool)mainSheets[index]["createOnly"])
+		{
+			throw new ApplicationException(
+				"ItemType '" + (string)mainSheets[index]["itemType"]["name"] + "' has no Unique properties, so an import could not find " +
+				"pre-filled items again. Its items can't be pre-filled for editing; remove its selected items from the job to create items instead.");
+		}
+		mainKeys.Add(string.Join(",", mainSheets[index]["columns"].Where(column => (bool)column["isKey"]).Select(column => (string)column["property"])));
+	}
+	SyncMainRows(jobId, targets.Select(target => target.Item1).ToList(), mainKeys);
+
+	// Each Sheet row records the match key its sheet is generated with.
+	List<XmlElement> sheetRows = Query(
+		"<Item type=\"FRG_MassCreateEdit_Sheet\" action=\"get\" select=\"relationship_type,match_properties\">" +
+		"<source_id>" + jobId + "</source_id></Item>").Where(row => Text(row, "relationship_type").Length > 0).ToList();
+	foreach (Newtonsoft.Json.Linq.JToken sheet in sheets.Where(sheet => (string)sheet["kind"] == "relationship"))
+	{
+		string relationshipTypeId = (string)sheet["relationshipType"]["id"];
+		string matchKey = string.Join(",", sheet["columns"].Where(c => (bool)c["isMatchKey"]).Select(c => (string)c["id"]));
+		XmlElement sheetRow = sheetRows.First(row => Text(row, "relationship_type") == relationshipTypeId);
+		if (Text(sheetRow, "match_properties") != matchKey)
+		{
+			Apply(
+				"<Item type=\"FRG_MassCreateEdit_Sheet\" action=\"edit\" id=\"" + sheetRow.GetAttribute("id") + "\">" +
+				"<match_properties>" + Xml(matchKey) + "</match_properties></Item>");
+		}
+	}
+
+	string token = NewToken();
+	List<string> replaced = ReplaceableFiles(job);
+	replaced.AddRange(UnlinkedStagedFiles(job));
+	Apply(
+		"<Item type=\"" + JobType + "\" action=\"edit\" id=\"" + jobId + "\">" +
+		"<workbook_token>" + token + "</workbook_token>" +
+		"<key_properties>" + Xml(mainKeys[0]) + "</key_properties>" +
+		"<metadata_hash>" + Xml((string)schema["definitionHash"]) + "</metadata_hash>" +
+		(givenOptions.Length > 0 ? "<export_options>" + Xml(givenOptions) + "</export_options>" : "") +
+		"<export_file is_null=\"1\"/>" +
+		"<exported_on is_null=\"1\"/>" +
+		// What an earlier upload and import left. In a Draft job the user may also have
+		// set any of these by hand; from here on only the steps set them.
+		"<upload_file is_null=\"1\"/>" +
+		"<results_file is_null=\"1\"/>" +
+		"<staged_files is_null=\"1\"/>" +
+		string.Concat(new string[] { "qty_total", "qty_created", "qty_updated", "qty_unchanged", "qty_skipped", "qty_failed" }.Select(name => "<" + name + " is_null=\"1\"/>")) +
+		"</Item>");
+	DeleteReplacedFiles(replaced);
+	// The job is Generated from here on: only the steps may change it any more, so what
+	// begin wrote stays as it is until complete attaches the workbook.
+	if (Text(job, "state") != "Generated")
+	{
+		Promote(jobId, "Generated");
+	}
+
+	Newtonsoft.Json.Linq.JObject limits = new Newtonsoft.Json.Linq.JObject();
+	limits.Add("maxRows", maxRows);
+	limits.Add("maxFileSizeMb", Number(config, "max_file_size_mb") ?? 0);
+
+	Newtonsoft.Json.Linq.JObject answer = new Newtonsoft.Json.Linq.JObject();
+	answer.Add("job", JobJson(ReadJob()));
+	answer.Add("token", token);
+	answer.Add("limits", limits);
+	Newtonsoft.Json.Linq.JArray targetJson = new Newtonsoft.Json.Linq.JArray();
+	foreach (Tuple<string, List<string>> target in targets)
+	{
+		Newtonsoft.Json.Linq.JObject entry = new Newtonsoft.Json.Linq.JObject();
+		entry.Add("itemTypeId", target.Item1);
+		entry.Add("prefillIds", new Newtonsoft.Json.Linq.JArray(target.Item2));
+		targetJson.Add(entry);
+	}
+	answer.Add("targets", targetJson);
+	// The schema goes out exactly as the schema Method wrote it.
+	answer.Add("schema", new Newtonsoft.Json.Linq.JRaw(schemaText));
+	return answer.ToString(Newtonsoft.Json.Formatting.None);
+}
+
+string Complete()
+{
+	XmlElement job = ReadJob();
+	string jobId = job.GetAttribute("id");
+	CheckAllowed(job, ReadConfiguration());
+	if (Text(job, "state") != "Generated")
+	{
+		throw new ApplicationException(
+			"Job " + Text(job, "item_number") + " is " + Text(job, "state") + ". The workbook can be attached only right after it was generated; generate it again.");
+	}
+
+	string token = Input("token");
+	if (token.Length == 0 || token != Text(job, "workbook_token"))
+	{
+		throw new ApplicationException(
+			"The workbook does not belong to the job as it is now: the job's workbook was generated again in the meantime. Generate the workbook once more.");
+	}
+
+	string fileId = Input("file_id");
+	if (!IsId(fileId))
+	{
+		throw new ApplicationException("FRG_MCE_ExportWorkbook: the 'file_id' property must be the id of a File item.");
+	}
+	List<XmlElement> files = Query("<Item type=\"File\" action=\"get\" select=\"created_by_id\" id=\"" + fileId + "\"/>");
+	if (files.Count != 1)
+	{
+		throw new ApplicationException("The workbook file was not found, or you have no access to it.");
+	}
+	if (Text(files[0], "created_by_id") != inn.getUserID())
+	{
+		throw new ApplicationException("The workbook file was not stored by you.");
+	}
+
+	I18NSessionContext session = inn.getI18NSessionContext();
+	string utcNow = DateTime.UtcNow.ToString(NeutralDateFormat, CultureInfo.InvariantCulture);
+	Apply(
+		"<Item type=\"" + JobType + "\" action=\"edit\" id=\"" + jobId + "\">" +
+		"<export_file>" + fileId + "</export_file>" +
+		"<exported_on>" + session.ConvertUtcDateTimeToNeutral(utcNow, NeutralDateFormat) + "</exported_on>" +
+		"</Item>");
+	Newtonsoft.Json.Linq.JObject answer = new Newtonsoft.Json.Linq.JObject();
+	answer.Add("job", JobJson(ReadJob()));
+	answer.Add("fileId", fileId);
+	return answer.ToString(Newtonsoft.Json.Formatting.None);
+}
+
+// The Files of the job that begin deletes once it has detached them: the earlier workbook
+// (export_file), the uploaded workbook (upload_file) and its validation result
+// (results_file), each when the caller stored it. Past Draft only the steps set these
+// properties, and they take only Files the caller stored, so these are the Files the tool
+// attached to the job. A Draft job's properties may have been set by hand, so a Draft job
+// gives none. Asked while the job still points to the Files.
+//
+// The caller's own rights do not decide the delete: once a job is Generated its creator
+// may no longer change it. The Files belong to the job's steps, like the job's other
+// properties, and begin deletes them as one of them.
+List<string> ReplaceableFiles(XmlElement job)
+{
+	List<string> fileIds = new List<string>();
+	if (Text(job, "state") == "Draft")
+	{
+		return fileIds;
+	}
+	foreach (string name in new string[] { "export_file", "upload_file", "results_file" })
+	{
+		string fileId = Text(job, name);
+		if (!IsId(fileId) || fileIds.Contains(fileId, StringComparer.OrdinalIgnoreCase))
+		{
+			continue;
+		}
+		List<XmlElement> files = Query("<Item type=\"File\" action=\"get\" select=\"created_by_id\" id=\"" + fileId + "\"/>");
+		if (files.Count == 1 && Text(files[0], "created_by_id") == inn.getUserID())
+		{
+			fileIds.Add(fileId);
+		}
+	}
+	return fileIds;
+}
+
+// The Files an import of the job stored and linked to no item: staged_files holds
+// [ { id, md5, name, linked } ], written by FRG_MCE_ImportWorkbook, which takes only Files the
+// caller stored. A Draft job gives none: its properties may have been set by hand.
+List<string> UnlinkedStagedFiles(XmlElement job)
+{
+	List<string> fileIds = new List<string>();
+	string text = Text(job, "staged_files").Trim();
+	if (Text(job, "state") == "Draft" || text.Length == 0)
+	{
+		return fileIds;
+	}
+	Newtonsoft.Json.Linq.JArray staged;
+	try
+	{
+		staged = Newtonsoft.Json.Linq.JToken.Parse(text) as Newtonsoft.Json.Linq.JArray;
+	}
+	catch (Newtonsoft.Json.JsonException)
+	{
+		staged = null;
+	}
+	foreach (Newtonsoft.Json.Linq.JToken entry in staged ?? new Newtonsoft.Json.Linq.JArray())
+	{
+		string fileId = entry is Newtonsoft.Json.Linq.JObject ? (string)entry["id"] : null;
+		bool linked = entry is Newtonsoft.Json.Linq.JObject && entry["linked"] != null && entry["linked"].Type == Newtonsoft.Json.Linq.JTokenType.Boolean && (bool)entry["linked"];
+		if (IsId(fileId) && !linked && !fileIds.Contains(fileId, StringComparer.OrdinalIgnoreCase))
+		{
+			fileIds.Add(fileId);
+		}
+	}
+	return fileIds;
+}
+
+// Deletes the Files that begin has just detached from the job: the earlier workbook, whose
+// token is gone, so no upload of it is accepted any more, and the upload of it with its
+// validation result. These Files are deleted with the Super User identity, each only when
+// no job points to it any more. The copies the user downloaded are not affected.
+void DeleteReplacedFiles(List<string> fileIds)
+{
+	if (fileIds.Count == 0)
+	{
+		return;
+	}
+	Aras.Server.Security.Identity superUser = Aras.Server.Security.Identity.GetById(SuperUserIdentityId);
+	bool granted = Aras.Server.Security.Permissions.GrantIdentity(superUser);
+	try
+	{
+		foreach (string fileId in fileIds)
+		{
+			List<XmlElement> users = Query(
+				"<Item type=\"" + JobType + "\" action=\"get\" select=\"id\"><OR>" +
+				"<export_file>" + fileId + "</export_file><upload_file>" + fileId + "</upload_file><results_file>" + fileId + "</results_file>" +
+				"</OR></Item>");
+			if (users.Count > 0)
+			{
+				continue;
+			}
+			Item deleted = inn.applyAML("<AML><Item type=\"File\" action=\"delete\" id=\"" + fileId + "\"/></AML>");
+			if (deleted.isError() && !deleted.isEmpty())
+			{
+				throw new ApplicationException("A file of the job's earlier workbook could not be deleted: " + deleted.getErrorString());
+			}
+		}
+	}
+	finally
+	{
+		if (granted)
+		{
+			Aras.Server.Security.Permissions.RevokeIdentity(superUser);
+		}
+	}
+}
+
+// Brings the job's Sheet rows in line with the export options, the choices made on the
+// Form: { "sheets": [ { "relationshipTypeId": "...", "matchKey": [ "column id", ... ] } ] }.
+// A job without export options was not set up on the Form, and keeps the Sheet rows it has.
+void SyncSheetRows(string jobId, string optionsText)
+{
+	if (optionsText.Length == 0)
+	{
+		return;
+	}
+	Dictionary<string, string> wanted = new Dictionary<string, string>(StringComparer.Ordinal);
+	try
+	{
+		Newtonsoft.Json.Linq.JArray sheets = ParseJson(optionsText)["sheets"] as Newtonsoft.Json.Linq.JArray;
+		if (sheets == null)
+		{
+			throw new ApplicationException("no sheets");
+		}
+		foreach (Newtonsoft.Json.Linq.JToken sheet in sheets)
+		{
+			string relationshipTypeId = (string)sheet["relationshipTypeId"] ?? "";
+			Newtonsoft.Json.Linq.JArray matchKey = sheet["matchKey"] as Newtonsoft.Json.Linq.JArray;
+			if (!IsId(relationshipTypeId) || wanted.ContainsKey(relationshipTypeId))
+			{
+				throw new ApplicationException("relationshipTypeId");
+			}
+			if ((string)sheet["layout"] == "indented" && !string.Equals(relationshipTypeId, PartBomRelationshipId, StringComparison.OrdinalIgnoreCase))
+			{
+				throw new ApplicationException("layout");
+			}
+			wanted[relationshipTypeId] = matchKey == null ? "" : string.Join(",", matchKey.Select(id => ((string)id ?? "").Trim()).Where(id => id.Length > 0));
+		}
+	}
+	catch (Exception)
+	{
+		throw new ApplicationException("The export options of the job can't be read. Choose the relationship sheets on the job's Form again.");
+	}
+
+	// The Sheet rows of the main sheets have no relationship; SyncMainRows keeps them.
+	List<XmlElement> rows = Query(
+		"<Item type=\"FRG_MassCreateEdit_Sheet\" action=\"get\" select=\"relationship_type,match_properties\">" +
+		"<source_id>" + jobId + "</source_id></Item>").Where(row => Text(row, "relationship_type").Length > 0).ToList();
+	foreach (XmlElement row in rows)
+	{
+		string relationshipTypeId = Text(row, "relationship_type");
+		string matchKey;
+		if (!wanted.TryGetValue(relationshipTypeId, out matchKey))
+		{
+			Apply("<Item type=\"FRG_MassCreateEdit_Sheet\" action=\"delete\" id=\"" + row.GetAttribute("id") + "\"/>");
+			continue;
+		}
+		if (Text(row, "match_properties") != matchKey)
+		{
+			Apply(
+				"<Item type=\"FRG_MassCreateEdit_Sheet\" action=\"edit\" id=\"" + row.GetAttribute("id") + "\">" +
+				"<match_properties>" + Xml(matchKey) + "</match_properties></Item>");
+		}
+		wanted.Remove(relationshipTypeId);
+	}
+	foreach (KeyValuePair<string, string> sheet in wanted)
+	{
+		Apply(
+			"<Item type=\"FRG_MassCreateEdit_Sheet\" action=\"add\">" +
+			"<source_id>" + jobId + "</source_id>" +
+			"<relationship_type>" + sheet.Key + "</relationship_type>" +
+			"<match_properties>" + Xml(sheet.Value) + "</match_properties></Item>");
+	}
+}
+
+// Brings the Sheet rows of the main sheets in line with the job's targets: one row per
+// target, with its ItemType (item_type), no relationship, its key (match_properties: the
+// names of the Unique properties, separated by commas) and its place among the main sheets
+// (sort_order, from 1). These rows are the record of each main sheet's key, as the job's
+// key_properties is of the first.
+void SyncMainRows(string jobId, List<string> targetIds, List<string> keys)
+{
+	List<XmlElement> rows = Query(
+		"<Item type=\"FRG_MassCreateEdit_Sheet\" action=\"get\" select=\"relationship_type,item_type,match_properties,sort_order\">" +
+		"<source_id>" + jobId + "</source_id></Item>").Where(row => Text(row, "relationship_type").Length == 0).ToList();
+	HashSet<string> kept = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+	foreach (XmlElement row in rows)
+	{
+		int index = targetIds.FindIndex(id => string.Equals(id, Text(row, "item_type"), StringComparison.OrdinalIgnoreCase));
+		if (index < 0 || kept.Contains(targetIds[index]))
+		{
+			Apply("<Item type=\"FRG_MassCreateEdit_Sheet\" action=\"delete\" id=\"" + row.GetAttribute("id") + "\"/>");
+			continue;
+		}
+		kept.Add(targetIds[index]);
+		string order = (index + 1).ToString(CultureInfo.InvariantCulture);
+		if (Text(row, "match_properties") != keys[index] || Text(row, "sort_order") != order)
+		{
+			Apply(
+				"<Item type=\"FRG_MassCreateEdit_Sheet\" action=\"edit\" id=\"" + row.GetAttribute("id") + "\">" +
+				"<match_properties>" + Xml(keys[index]) + "</match_properties><sort_order>" + order + "</sort_order></Item>");
+		}
+	}
+	for (int index = 0; index < targetIds.Count; index++)
+	{
+		if (!kept.Contains(targetIds[index]))
+		{
+			Apply(
+				"<Item type=\"FRG_MassCreateEdit_Sheet\" action=\"add\">" +
+				"<source_id>" + jobId + "</source_id>" +
+				"<item_type>" + targetIds[index] + "</item_type>" +
+				"<match_properties>" + Xml(keys[index]) + "</match_properties>" +
+				"<sort_order>" + (index + 1).ToString(CultureInfo.InvariantCulture) + "</sort_order></Item>");
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------------
+// The job and the checks
+// ---------------------------------------------------------------------------------
+
+// Reads the job and refuses the call unless its creator is calling, its state allows
+// generating, and nobody is editing it.
+XmlElement ReadJob()
+{
+	string jobId = Input("job_id");
+	if (!IsId(jobId))
+	{
+		throw new ApplicationException("FRG_MCE_ExportWorkbook: the 'job_id' property must be the id of a job.");
+	}
+	List<XmlElement> jobs = Query(
+		"<Item type=\"" + JobType + "\" action=\"get\" id=\"" + jobId + "\" " +
+		"select=\"item_number,state,created_by_id,locked_by_id,target_itemtype,targets,prefill_idlist,export_options,workbook_token,export_file,exported_on,upload_file,results_file,staged_files\"/>");
+	if (jobs.Count != 1)
+	{
+		throw new ApplicationException("Mass Create & Edit job '" + jobId + "' was not found, or you have no access to it.");
+	}
+	XmlElement job = jobs[0];
+	string number = Text(job, "item_number");
+	string userId = inn.getUserID();
+
+	if (Text(job, "created_by_id") != userId)
+	{
+		throw new ApplicationException(
+			"Only the user who created a job can run it. Job " + number + " was created by " + Attribute(job, "created_by_id", "keyed_name") + ".");
+	}
+	string state = Text(job, "state");
+	if (!openStates.Contains(state))
+	{
+		throw new ApplicationException(
+			"Job " + number + " is " + state + ". A workbook can be generated while a job is Draft, Generated or Validated.");
+	}
+	string lockedBy = Text(job, "locked_by_id");
+	if (lockedBy == userId)
+	{
+		throw new ApplicationException("Job " + number + " is being edited. Save it and finish editing before generating the workbook.");
+	}
+	if (lockedBy.Length > 0)
+	{
+		throw new ApplicationException("Job " + number + " is locked by " + Attribute(job, "locked_by_id", "keyed_name") + ".");
+	}
+	if (Text(job, "target_itemtype").Length == 0)
+	{
+		throw new ApplicationException("Job " + number + " has no target ItemType.");
+	}
+	return job;
+}
+
+// The configuration item: the one named Default, or else the oldest one.
+XmlElement ReadConfiguration()
+{
+	List<XmlElement> configs = Query(
+		"<Item type=\"FRG_MassCreateEdit_Config\" action=\"get\" select=\"name,max_rows,max_file_size_mb\" orderBy=\"created_on\"/>");
+	if (configs.Count == 0)
+	{
+		throw new ApplicationException("Mass Create & Edit has no configuration item, or you have no access to it. Ask an administrator.");
+	}
+	return configs.FirstOrDefault(c => Text(c, "name") == "Default") ?? configs[0];
+}
+
+// The allow-list is checked on the server as well, because a caller can skip the Form. A row
+// with an identity allows the ItemType only to members of that identity, direct or through
+// other identities; a row without one allows it to everyone who can use the tool.
+void CheckAllowed(XmlElement job, XmlElement config)
+{
+	List<XmlElement> allowed = Query(
+		"<Item type=\"FRG_MassCreateEdit_AllowedType\" action=\"get\" select=\"related_id,identity_id\" related_expand=\"0\">" +
+		"<source_id>" + config.GetAttribute("id") + "</source_id></Item>");
+	HashSet<string> mine = new HashSet<string>(
+		Aras.Server.Security.Permissions.Current.IdentitiesList.Split(',').Select(id => id.Trim().Trim('\'')), StringComparer.OrdinalIgnoreCase);
+	// Every target must be allowed: a job is refused when any of its targets is.
+	foreach (Tuple<string, List<string>> target in JobTargets(job))
+	{
+		List<XmlElement> rows = allowed.Where(row => string.Equals(Text(row, "related_id"), target.Item1, StringComparison.OrdinalIgnoreCase)).ToList();
+		string targetName = rows.Count > 0 ? Attribute(rows[0], "related_id", "keyed_name") : TypeName(target.Item1);
+		if (rows.Count == 0)
+		{
+			throw new ApplicationException(
+				"ItemType '" + targetName + "' is not on the allow-list of Mass Create & Edit. " +
+				"An administrator can add it on the configuration item.");
+		}
+		if (!rows.Any(row => Text(row, "identity_id").Length == 0 || mine.Contains(Text(row, "identity_id"))))
+		{
+			throw new ApplicationException(
+				"Mass Create & Edit on ItemType '" + targetName + "' is limited to the members of identity '" +
+				Attribute(rows[0], "identity_id", "keyed_name") + "'. Ask an administrator.");
+		}
+	}
+}
+
+// The name of an ItemType, for a message; its id when the caller can't read it.
+string TypeName(string itemTypeId)
+{
+	List<XmlElement> types = Query("<Item type=\"ItemType\" action=\"get\" select=\"name\" id=\"" + itemTypeId + "\"/>");
+	return types.Count == 1 ? Text(types[0], "name") : itemTypeId;
+}
+
+void Promote(string jobId, string state)
+{
+	Apply("<Item type=\"" + JobType + "\" action=\"promoteItem\" id=\"" + jobId + "\"><state>" + state + "</state></Item>");
+}
+
+Newtonsoft.Json.Linq.JObject JobJson(XmlElement job)
+{
+	Newtonsoft.Json.Linq.JObject json = new Newtonsoft.Json.Linq.JObject();
+	json.Add("id", job.GetAttribute("id"));
+	json.Add("number", Text(job, "item_number"));
+	json.Add("state", Text(job, "state"));
+	json.Add("exportedOn", Text(job, "exported_on").Length == 0 ? null : Text(job, "exported_on"));
+	return json;
+}
+
+// ---------------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------------
+
+// The job's targets, in the order of their main sheets: (ItemType id, ids of the items to
+// pre-fill). The job's targets property holds them as JSON:
+//   [ { "itemTypeId": "...", "prefillIds": [ "...", ... ] }, ... ]
+// A job without it has one target: its
+// target_itemtype, with the items of prefill_idlist. The first target is always the job's
+// target_itemtype, and an ItemType is a target once.
+List<Tuple<string, List<string>>> JobTargets(XmlElement job)
+{
+	List<Tuple<string, List<string>>> targets = new List<Tuple<string, List<string>>>();
+	string first = Text(job, "target_itemtype");
+	string text = Text(job, "targets").Trim();
+	if (text.Length == 0)
+	{
+		if (first.Length > 0)
+		{
+			targets.Add(Tuple.Create(first, IdList(Text(job, "prefill_idlist").Split(','))));
+		}
+	}
+	else
+	{
+		Newtonsoft.Json.Linq.JArray entries = null;
+		try
+		{
+			entries = Newtonsoft.Json.Linq.JToken.Parse(text) as Newtonsoft.Json.Linq.JArray;
+		}
+		catch (Newtonsoft.Json.JsonException)
+		{
+			entries = null;
+		}
+		if (entries == null)
+		{
+			throw new ApplicationException("The job's list of target ItemTypes can't be read. Choose the targets on the job's Form again.");
+		}
+		foreach (Newtonsoft.Json.Linq.JToken entry in entries)
+		{
+			Newtonsoft.Json.Linq.JObject target = entry as Newtonsoft.Json.Linq.JObject;
+			string id = target == null || target["itemTypeId"] == null ? "" : ((string)target["itemTypeId"] ?? "").Trim().ToUpperInvariant();
+			if (!IsId(id))
+			{
+				throw new ApplicationException("The job's list of target ItemTypes is damaged: '" + id + "' is not an ItemType id. Choose the targets on the job's Form again.");
+			}
+			if (targets.Any(t => t.Item1 == id))
+			{
+				throw new ApplicationException("The job names the same ItemType twice as a target. An ItemType can be a target of a job once.");
+			}
+			Newtonsoft.Json.Linq.JArray prefill = target["prefillIds"] as Newtonsoft.Json.Linq.JArray;
+			targets.Add(Tuple.Create(id, IdList(prefill == null ? new string[0] : prefill.Select(value => value.Type == Newtonsoft.Json.Linq.JTokenType.String ? (string)value : "#"))));
+		}
+		if (targets.Count > 0 && targets[0].Item1 != first.ToUpperInvariant())
+		{
+			throw new ApplicationException("The job's first target is not its target ItemType. Open the job, and save it again from its Form.");
+		}
+	}
+	if (targets.Count == 0)
+	{
+		throw new ApplicationException("The job has no target ItemType.");
+	}
+	return targets;
+}
+
+// Item ids given as text, without blanks and repeats. A text that is no id means the list is damaged.
+List<string> IdList(IEnumerable<string> values)
+{
+	List<string> ids = new List<string>();
+	foreach (string value in values)
+	{
+		string id = (value ?? "").Trim();
+		if (id.Length == 0)
+		{
+			continue;
+		}
+		if (!IsId(id))
+		{
+			throw new ApplicationException("The job's list of items to pre-fill is damaged: '" + id + "' is not an item id.");
+		}
+		if (!ids.Contains(id, StringComparer.OrdinalIgnoreCase))
+		{
+			ids.Add(id);
+		}
+	}
+	return ids;
+}
+
+// An input property of the Method, trimmed; empty when it was not given.
+string Input(string name)
+{
+	return (this.getProperty(name, "") ?? "").Trim();
+}
+
+// 32 random bytes as 64 hexadecimal digits.
+string NewToken()
+{
+	byte[] bytes = new byte[32];
+	using (System.Security.Cryptography.RandomNumberGenerator random = System.Security.Cryptography.RandomNumberGenerator.Create())
+	{
+		random.GetBytes(bytes);
+	}
+	StringBuilder hex = new StringBuilder();
+	foreach (byte b in bytes)
+	{
+		hex.Append(b.ToString("x2", CultureInfo.InvariantCulture));
+	}
+	return hex.ToString();
+}
+
+bool IsId(string value)
+{
+	return value.Length == 32 && value.All(c => (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f'));
+}
+
+// Parses JSON and keeps every text as it is: a text that looks like a date stays a text.
+Newtonsoft.Json.Linq.JObject ParseJson(string json)
+{
+	using (Newtonsoft.Json.JsonTextReader reader = new Newtonsoft.Json.JsonTextReader(new StringReader(json)))
+	{
+		reader.DateParseHandling = Newtonsoft.Json.DateParseHandling.None;
+		return Newtonsoft.Json.Linq.JObject.Load(reader);
+	}
+}
+
+// Runs one AML query as the caller and returns the items found. Finding nothing is an
+// empty result here.
+List<XmlElement> Query(string aml)
+{
+	Item response = inn.applyAML("<AML>" + aml + "</AML>");
+	List<XmlElement> items = new List<XmlElement>();
+	if (response.isError())
+	{
+		if (response.isEmpty())
+		{
+			return items;
+		}
+		throw new ApplicationException(response.getErrorString());
+	}
+	foreach (XmlNode item in response.dom.SelectNodes("//Result/Item"))
+	{
+		items.Add((XmlElement)item);
+	}
+	return items;
+}
+
+// Runs one AML request that writes to the job, its state or its Sheet rows. A failure
+// ends the Method. The writes are made with the identity of the steps of Mass Create &
+// Edit, the only identity that may change these; it is taken on for this request only.
+void Apply(string aml)
+{
+	Aras.Server.Security.Identity steps;
+	try
+	{
+		steps = Aras.Server.Security.Identity.GetById(StepsIdentityId);
+	}
+	catch (Exception)
+	{
+		throw new ApplicationException("The identity 'FRG Mass Create & Edit Steps' is missing. Mass Create & Edit is not installed completely; ask an administrator.");
+	}
+	bool granted = Aras.Server.Security.Permissions.GrantIdentity(steps);
+	Item response;
+	try
+	{
+		response = inn.applyAML("<AML>" + aml + "</AML>");
+	}
+	finally
+	{
+		if (granted)
+		{
+			Aras.Server.Security.Permissions.RevokeIdentity(steps);
+		}
+	}
+	if (response.isError())
+	{
+		throw new ApplicationException(response.getErrorString());
+	}
+}
+
+// The value of a property; for an item property that came back as a nested item, its id.
+string Text(XmlElement item, string name)
+{
+	XmlElement value = item[name];
+	if (value == null)
+	{
+		return "";
+	}
+	XmlElement nested = value["Item"];
+	return nested == null ? value.InnerText : nested.GetAttribute("id");
+}
+
+string Attribute(XmlElement item, string name, string attribute)
+{
+	XmlElement value = item[name];
+	return value == null ? "" : value.GetAttribute(attribute);
+}
+
+int? Number(XmlElement item, string name)
+{
+	int number;
+	return int.TryParse(Text(item, name), NumberStyles.Integer, CultureInfo.InvariantCulture, out number) ? (int?)number : null;
+}
+
+string Xml(string value)
+{
+	return value.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;").Replace("'", "&apos;");
+}

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<imports>
+	<!--
+		PLMForge.MassCreateEdit holds every item this package owns, one file
+		per item, as FRG_MassCreateEdit/<ItemType>/<Item>.xml.
+
+		The package's menu entries attach to the Administration menu of
+		com.aras.innovator.cui_default.
+	-->
+	<package name="PLMForge.MassCreateEdit" path="FRG_MassCreateEdit">
+		<dependson name="com.aras.innovator.cui_default" />
+	</package>
+</imports>

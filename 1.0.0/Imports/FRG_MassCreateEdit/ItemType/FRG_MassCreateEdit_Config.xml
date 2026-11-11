@@ -1,0 +1,252 @@
+﻿<AML>
+ <Item type="ItemType" id="567EBE4A2B7F054A82CF1DB0B858DC58" action="add">
+  <allow_private_permission>0</allow_private_permission>
+  <auto_search>0</auto_search>
+  <default_page_size>30</default_page_size>
+  <description>Settings that apply to every Mass Create &amp; Edit job: the ItemTypes that can be used and the upload limits. The tool reads the item named Default.</description>
+  <enforce_discovery>1</enforce_discovery>
+  <hide_where_used>0</hide_where_used>
+  <implementation_type>table</implementation_type>
+  <instance_data>FRG_MASSCREATEEDIT_CONFIG</instance_data>
+  <is_dependent>0</is_dependent>
+  <is_relationship>0</is_relationship>
+  <is_versionable>0</is_versionable>
+  <label xml:lang="en">Mass Create &amp; Edit Configuration</label>
+  <label_plural xml:lang="en">Mass Create &amp; Edit Configuration</label_plural>
+  <large_icon>../images/ExportSettings.svg</large_icon>
+  <open_icon>../images/ExportSettings.svg</open_icon>
+  <revisions keyed_name="Default" type="Revision">7FE395DD8B9F4E1090756A34B733D75E</revisions>
+  <show_parameters_tab>1</show_parameters_tab>
+  <structure_view>tabs on</structure_view>
+  <unlock_on_logout>0</unlock_on_logout>
+  <use_src_access>0</use_src_access>
+  <name>FRG_MassCreateEdit_Config</name>
+  <Relationships>
+   <Item type="ITPresentationConfiguration" id="95E6DE2F58FE7038F996AE5A6367AC3C" action="add">
+    <client>js</client>
+    <related_id keyed_name="FRG_MassCreateEdit_Config_PresentationConfiguration" type="PresentationConfiguration">BBFF9C59BEA19CF7767AAF2E0756EE4E</related_id>
+    <sort_order>128</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit_Config" type="ItemType" name="FRG_MassCreateEdit_Config">567EBE4A2B7F054A82CF1DB0B858DC58</source_id>
+   </Item>
+   <Item type="Property" id="250E37A9EC60D5E693E31472285106E3" action="add">
+    <column_alignment>left</column_alignment>
+    <column_width>180</column_width>
+    <data_type>integer</data_type>
+    <default_value xml:lang="en">100</default_value>
+    <is_discoverable>1</is_discoverable>
+    <is_federated>0</is_federated>
+    <is_hidden>0</is_hidden>
+    <is_hidden2>0</is_hidden2>
+    <is_indexed>0</is_indexed>
+    <is_keyed>0</is_keyed>
+    <is_multi_valued>0</is_multi_valued>
+    <is_required>0</is_required>
+    <label xml:lang="en">Largest File to Attach (MB)</label>
+    <range_inclusive>0</range_inclusive>
+    <readonly>0</readonly>
+    <sort_order>50</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit_Config" type="ItemType" name="FRG_MassCreateEdit_Config">567EBE4A2B7F054A82CF1DB0B858DC58</source_id>
+    <track_history>0</track_history>
+    <name>max_attachment_mb</name>
+   </Item>
+   <Item type="Property" id="9B0F68C72CF53A407FC25E53CC2AF962" action="add">
+    <column_alignment>left</column_alignment>
+    <column_width>180</column_width>
+    <data_type>integer</data_type>
+    <default_value xml:lang="en">2000</default_value>
+    <is_discoverable>1</is_discoverable>
+    <is_federated>0</is_federated>
+    <is_hidden>0</is_hidden>
+    <is_hidden2>0</is_hidden2>
+    <is_indexed>0</is_indexed>
+    <is_keyed>0</is_keyed>
+    <is_multi_valued>0</is_multi_valued>
+    <is_required>0</is_required>
+    <label xml:lang="en">Total Size of Files per Import (MB)</label>
+    <range_inclusive>0</range_inclusive>
+    <readonly>0</readonly>
+    <sort_order>60</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit_Config" type="ItemType" name="FRG_MassCreateEdit_Config">567EBE4A2B7F054A82CF1DB0B858DC58</source_id>
+    <track_history>0</track_history>
+    <name>max_attachments_total_mb</name>
+   </Item>
+   <Item type="Property" id="57F57E2BBE8E61252EE7D7EC1FB89647" action="add">
+    <column_alignment>left</column_alignment>
+    <column_width>180</column_width>
+    <data_type>integer</data_type>
+    <default_value xml:lang="en">1000</default_value>
+    <is_discoverable>1</is_discoverable>
+    <is_federated>0</is_federated>
+    <is_hidden>0</is_hidden>
+    <is_hidden2>0</is_hidden2>
+    <is_indexed>0</is_indexed>
+    <is_keyed>0</is_keyed>
+    <is_multi_valued>0</is_multi_valued>
+    <is_required>0</is_required>
+    <label xml:lang="en">Files per Import</label>
+    <range_inclusive>0</range_inclusive>
+    <readonly>0</readonly>
+    <sort_order>70</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit_Config" type="ItemType" name="FRG_MassCreateEdit_Config">567EBE4A2B7F054A82CF1DB0B858DC58</source_id>
+    <track_history>0</track_history>
+    <name>max_attachments</name>
+   </Item>
+   <Item type="Property" id="0066876BC9A527ED84194973D0885A00" action="add">
+    <column_alignment>left</column_alignment>
+    <column_width>180</column_width>
+    <data_type>string</data_type>
+    <stored_length>512</stored_length>
+    <is_discoverable>1</is_discoverable>
+    <is_federated>0</is_federated>
+    <is_hidden>0</is_hidden>
+    <is_hidden2>0</is_hidden2>
+    <is_indexed>0</is_indexed>
+    <is_keyed>0</is_keyed>
+    <is_multi_valued>0</is_multi_valued>
+    <is_required>0</is_required>
+    <label xml:lang="en">Allowed File Extensions</label>
+    <range_inclusive>0</range_inclusive>
+    <readonly>0</readonly>
+    <sort_order>80</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit_Config" type="ItemType" name="FRG_MassCreateEdit_Config">567EBE4A2B7F054A82CF1DB0B858DC58</source_id>
+    <track_history>0</track_history>
+    <name>allowed_extensions</name>
+   </Item>
+   <Item type="Property" id="9DB18324EE81A3AB706A8F02FB21FE31" action="add">
+    <column_alignment>left</column_alignment>
+    <column_width>180</column_width>
+    <data_type>integer</data_type>
+    <default_value xml:lang="en">50</default_value>
+    <is_discoverable>1</is_discoverable>
+    <is_federated>0</is_federated>
+    <is_hidden>0</is_hidden>
+    <is_hidden2>0</is_hidden2>
+    <is_indexed>0</is_indexed>
+    <is_keyed>0</is_keyed>
+    <is_multi_valued>0</is_multi_valued>
+    <is_required>1</is_required>
+    <label xml:lang="en">Items per Import Request</label>
+    <range_inclusive>0</range_inclusive>
+    <readonly>0</readonly>
+    <sort_order>40</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit_Config" type="ItemType" name="FRG_MassCreateEdit_Config">567EBE4A2B7F054A82CF1DB0B858DC58</source_id>
+    <track_history>0</track_history>
+    <name>batch_size</name>
+   </Item>
+   <Item type="Property" id="553550C8DA310AC95F9235B035BEAD89" action="add">
+    <column_alignment>left</column_alignment>
+    <column_width>180</column_width>
+    <data_type>integer</data_type>
+    <default_value xml:lang="en">4</default_value>
+    <is_discoverable>1</is_discoverable>
+    <is_federated>0</is_federated>
+    <is_hidden>0</is_hidden>
+    <is_hidden2>0</is_hidden2>
+    <is_indexed>0</is_indexed>
+    <is_keyed>0</is_keyed>
+    <is_multi_valued>0</is_multi_valued>
+    <is_required>0</is_required>
+    <label xml:lang="en">Import Requests at Once</label>
+    <range_inclusive>0</range_inclusive>
+    <readonly>0</readonly>
+    <sort_order>45</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit_Config" type="ItemType" name="FRG_MassCreateEdit_Config">567EBE4A2B7F054A82CF1DB0B858DC58</source_id>
+    <track_history>0</track_history>
+    <name>parallel_batches</name>
+   </Item>
+   <Item type="Property" id="81DFB2F71A85D5712282AF35E482EDCC" action="add">
+    <column_alignment>left</column_alignment>
+    <column_width>180</column_width>
+    <data_type>integer</data_type>
+    <default_value xml:lang="en">10</default_value>
+    <is_discoverable>1</is_discoverable>
+    <is_federated>0</is_federated>
+    <is_hidden>0</is_hidden>
+    <is_hidden2>0</is_hidden2>
+    <is_indexed>0</is_indexed>
+    <is_keyed>0</is_keyed>
+    <is_multi_valued>0</is_multi_valued>
+    <is_required>1</is_required>
+    <label xml:lang="en">Maximum Upload Size (MB)</label>
+    <range_inclusive>0</range_inclusive>
+    <readonly>0</readonly>
+    <sort_order>30</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit_Config" type="ItemType" name="FRG_MassCreateEdit_Config">567EBE4A2B7F054A82CF1DB0B858DC58</source_id>
+    <track_history>0</track_history>
+    <name>max_file_size_mb</name>
+   </Item>
+   <Item type="Property" id="8E9E524CE41708224893BC49A8ADC4F4" action="add">
+    <column_alignment>left</column_alignment>
+    <column_width>180</column_width>
+    <data_type>integer</data_type>
+    <default_value xml:lang="en">5000</default_value>
+    <is_discoverable>1</is_discoverable>
+    <is_federated>0</is_federated>
+    <is_hidden>0</is_hidden>
+    <is_hidden2>0</is_hidden2>
+    <is_indexed>0</is_indexed>
+    <is_keyed>0</is_keyed>
+    <is_multi_valued>0</is_multi_valued>
+    <is_required>1</is_required>
+    <label xml:lang="en">Maximum Rows per Upload</label>
+    <range_inclusive>0</range_inclusive>
+    <readonly>0</readonly>
+    <sort_order>20</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit_Config" type="ItemType" name="FRG_MassCreateEdit_Config">567EBE4A2B7F054A82CF1DB0B858DC58</source_id>
+    <track_history>0</track_history>
+    <name>max_rows</name>
+   </Item>
+   <Item type="View" id="8B45EA43343612684B92BE9B18725BC3" action="add">
+    <client>js</client>
+    <related_id keyed_name="FRG_MassCreateEdit_Config" type="Form">51D2F7CB8513ECDB5CD1D9A6843ABD60</related_id>
+    <role keyed_name="World" type="Identity">
+     <Item type="Identity" action="get" select="id">
+      <name>World</name>
+     </Item>
+    </role>
+    <show_ssvc>0</show_ssvc>
+    <sort_order>128</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit_Config" type="ItemType" name="FRG_MassCreateEdit_Config">567EBE4A2B7F054A82CF1DB0B858DC58</source_id>
+    <type>default</type>
+   </Item>
+   <Item type="Can Add" id="35DA7AF58101F4FE0C8A32516751F379" action="add">
+    <can_add>1</can_add>
+    <related_id keyed_name="Administrators" type="Identity">2618D6F5A90949BAA7E920D1B04C7EE1</related_id>
+    <sort_order>128</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit_Config" type="ItemType" name="FRG_MassCreateEdit_Config">567EBE4A2B7F054A82CF1DB0B858DC58</source_id>
+   </Item>
+   <Item type="Allowed Permission" id="B472AF59EE5FADE6C4A8FAEB908AB8EB" action="add">
+    <is_default>1</is_default>
+    <related_id keyed_name="FRG_MassCreateEdit_Config" type="Permission">581D23F590C5DEEB9B48CF1978C3A863</related_id>
+    <sort_order>128</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit_Config" type="ItemType" name="FRG_MassCreateEdit_Config">567EBE4A2B7F054A82CF1DB0B858DC58</source_id>
+   </Item>
+  </Relationships>
+ </Item>
+ <Item type="ItemType" id="567EBE4A2B7F054A82CF1DB0B858DC58" action="edit">
+  <Relationships>
+   <Item type="Property" id="A0F1D0DA05E0642E2538F58DC5BCDED1" action="add">
+    <column_alignment>left</column_alignment>
+    <column_width>180</column_width>
+    <data_type>string</data_type>
+    <is_discoverable>1</is_discoverable>
+    <is_federated>0</is_federated>
+    <is_hidden>0</is_hidden>
+    <is_hidden2>0</is_hidden2>
+    <is_indexed>0</is_indexed>
+    <is_keyed>1</is_keyed>
+    <is_multi_valued>0</is_multi_valued>
+    <is_required>1</is_required>
+    <keyed_name_order>1</keyed_name_order>
+    <label xml:lang="en">Name</label>
+    <range_inclusive>0</range_inclusive>
+    <readonly>0</readonly>
+    <sort_order>10</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit_Config" type="ItemType" name="FRG_MassCreateEdit_Config">567EBE4A2B7F054A82CF1DB0B858DC58</source_id>
+    <stored_length>64</stored_length>
+    <track_history>0</track_history>
+    <name>name</name>
+   </Item>
+  </Relationships>
+ </Item>
+</AML>

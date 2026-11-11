@@ -1,0 +1,36 @@
+﻿<AML>
+ <Item type="List" id="9D8E5108EBF74E0F341384C38FFAD272" action="add">
+  <description>What an import did with one row of a Mass Create &amp; Edit workbook.</description>
+  <name>FRG_MassCreateEdit_RecordAction</name>
+  <Relationships>
+   <Item type="Value" id="59A8C8C8FB471FA1EAEDA8A9AB7D0E80" action="add">
+    <inactive>0</inactive>
+    <label xml:lang="en">Created</label>
+    <sort_order>128</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit_RecordAction" type="List">9D8E5108EBF74E0F341384C38FFAD272</source_id>
+    <value>Created</value>
+   </Item>
+   <Item type="Value" id="B1930CDCD08CB7B8ECF1BDACC13D5D7F" action="add">
+    <inactive>0</inactive>
+    <label xml:lang="en">Updated</label>
+    <sort_order>256</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit_RecordAction" type="List">9D8E5108EBF74E0F341384C38FFAD272</source_id>
+    <value>Updated</value>
+   </Item>
+   <Item type="Value" id="CC3EBC96154B58FDB5B672959AB4E8FD" action="add">
+    <inactive>0</inactive>
+    <label xml:lang="en">Deleted</label>
+    <sort_order>320</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit_RecordAction" type="List">9D8E5108EBF74E0F341384C38FFAD272</source_id>
+    <value>Deleted</value>
+   </Item>
+   <Item type="Value" id="C3D5F2F7F7CB3C07DD2C71EC44CCBC31" action="add">
+    <inactive>0</inactive>
+    <label xml:lang="en">Failed</label>
+    <sort_order>384</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit_RecordAction" type="List">9D8E5108EBF74E0F341384C38FFAD272</source_id>
+    <value>Failed</value>
+   </Item>
+  </Relationships>
+ </Item>
+</AML>

@@ -1,0 +1,1672 @@
+// Method:  FRG_MCE_GetTemplateSchema
+// Type:    server Method, C#
+// Purpose: describes the workbook that Mass Create & Edit generates for an ItemType.
+//          It reads the ItemType's definition as the calling user and returns a JSON
+//          schema: one sheet for the ItemType, one sheet per requested RelationshipType,
+//          the columns of each sheet, and the Lists and class paths their drop-downs need.
+//
+// Input (properties of the context item), in one of three forms:
+//
+//   itemtype            name of the ItemType
+//   relationship_types  zero or more RelationshipType names of that ItemType, separated by "|"
+//       The sheets asked for. Each relationship sheet gets the default match key: the
+//       parent's Unique key, the related item's Unique key and sort_order.
+//
+//   itemtype            name of the ItemType
+//   all_relationships   1
+//       Every RelationshipType of the ItemType that can be a sheet, each with the default
+//       match key. The result also has "relationships": one entry per RelationshipType of
+//       the ItemType, saying whether it can be a sheet and, when it cannot, why. The job
+//       Form builds its sheet picker from this.
+//
+//   job_id              id of a Mass Create & Edit job
+//       The workbook of that job: one main sheet per target ItemType of the job, in the
+//       order of its targets (property targets, see JobTargets; a job without it has one
+//       target, target_itemtype), the relationship sheets are the job's Sheet rows that
+//       name a relationship (the others are the rows of the main sheets), each of which
+//       must belong to one of the targets, and the match key of each sheet is the one stored on its
+//       row (match_properties: column ids separated by commas, for example
+//       "parent.item_number,related.item_number,sort_order"). The parent's key is always
+//       part of the match key, whether the row lists it or not. A row without match
+//       properties gets the default match key.
+//
+// Output: a result whose text is the JSON schema
+//   { formatVersion, database, generatedOn, language, sheets[], lists{}, definitionHash }
+//   and, with all_relationships, also
+//   relationships[]: { id, name, label, relatedItemType, relatedRequired, canBeSheet, reason }
+//
+// Besides what the workbook needs, the schema carries what checking an upload needs:
+//   sheets[].relationshipType.relatedRequired  whether a relationship row must name a related item
+//   sheets[].uniqueProperties  on a relationship sheet, the Unique properties of the
+//                              relationship ItemType itself: [ { property, defaultValue } ].
+//                              null on the main sheet, whose Unique properties are its key.
+//   sheets[].columns[].filterBy  on a filter list column, the name of the property whose
+//                                value filters the list; null on other columns.
+//
+// Files. A property that points at File is a column with dataType "file": its cells hold
+// file names. A relationship whose related ItemType is File is a file sheet: its related
+// item is named by the column related.filename (dataType "file"), its default match key is
+// the parent's key and that file name, and its last column is the delete column (id
+// "delete", role "delete", dataType "delete", no property), whose only value is #DELETE.
+// A relationship sheet with a file column of its own (CAD Files, say) has the delete column too.
+// So does a Part BOM sheet, with "indentedOnly": true: only an indented sheet is given that column.
+//
+// The main sheets come first, then the relationship sheets. The relationship sheets are in
+// the order asked for with relationship_types, and otherwise grouped by their main sheet,
+// in the order of the relationship tabs within each group. Each relationship sheet has
+//   sheets[].parentSheet   the index of the main sheet of its source ItemType
+//   sheets[].relatedSheet  the index of the main sheet of its related ItemType, or null
+//
+// Errors: an ordinary error says why the schema cannot be built. When the reason is a
+// match key stored on a Sheet row of the job that does not fit its sheet (job_id form),
+// the error code is MCE_MATCH_KEY_INVALID and the error detail is the id of that
+// RelationshipType.
+//
+// Everything is read with the caller's own permissions. The Method runs no SQL and
+// takes on no other identity.
+
+Innovator inn = this.getInnovator();
+
+const int FormatVersion = 1;
+const string NeutralDateFormat = "yyyy-MM-ddTHH:mm:ss";
+const string WorldIdentityId = "A73B655731924CD0B027E4F4D5FCC0A9";
+const string FileItemTypeId = "8052A558B9084D41B9F11805E464F443";
+const string PartItemTypeId = "4F1AC04A2B484F3ABA4E20DB63808A88";
+const string PartBomRelationshipId = "159C6D88795B4A86864420863466F728";
+const string ItemTypeSelect = "id,name,label,is_versionable,is_relationship,implementation_type,class_structure";
+const string RelationshipTypeSelect = "id,name,label,relationship_id,related_id,source_id,related_notnull,hide_in_all,sort_order";
+
+// The data types a workbook column can carry. Anything else (image, md5, sequence,
+// foreign, ...) cannot be imported and never becomes a column, except as a key.
+HashSet<string> importableTypes = new HashSet<string>(StringComparer.Ordinal)
+{
+	"string", "text", "formatted text", "ml_string", "integer", "decimal", "float", "date",
+	"boolean", "list", "filter list", "mv_list", "item", "color", "color list"
+};
+HashSet<string> listTypes = new HashSet<string>(StringComparer.Ordinal)
+{
+	"list", "filter list", "mv_list", "color list"
+};
+
+// Properties the server maintains itself. A grid may show them, but a value typed into
+// a workbook would be ignored or refused, so the grid alone does not make them columns.
+// A Form with an enabled field for one of them still does.
+HashSet<string> serverManaged = new HashSet<string>(StringComparer.Ordinal)
+{
+	"id", "config_id", "keyed_name", "created_by_id", "created_on", "modified_by_id", "modified_on",
+	"locked_by_id", "generation", "is_current", "is_released", "new_version", "not_lockable",
+	"major_rev", "minor_rev", "state", "current_state", "permission_id", "css"
+};
+
+// The Form a user gets depends on whether the item is new or being edited. An import
+// does both, so the Forms of both modes count.
+string[] formModes = new string[] { "edit", "add" };
+
+Dictionary<string, XmlElement> itemTypesById = new Dictionary<string, XmlElement>(StringComparer.Ordinal);
+Dictionary<string, List<XmlElement>> propsByType = new Dictionary<string, List<XmlElement>>(StringComparer.Ordinal);
+Dictionary<string, XmlElement> propsById = new Dictionary<string, XmlElement>(StringComparer.Ordinal);
+Dictionary<string, List<XmlElement>> viewsByType = new Dictionary<string, List<XmlElement>>(StringComparer.Ordinal);
+Dictionary<string, List<XmlElement>> fieldsByForm = new Dictionary<string, List<XmlElement>>(StringComparer.Ordinal);
+HashSet<string> valueLists = new HashSet<string>(StringComparer.Ordinal);
+HashSet<string> filterValueLists = new HashSet<string>(StringComparer.Ordinal);
+HashSet<string> userIdentities = new HashSet<string>(StringComparer.Ordinal);
+HashSet<string> aliasIdentities = new HashSet<string>(StringComparer.Ordinal);
+// The RelationshipType whose stored match key does not fit its sheet, when that is why the schema fails.
+string badMatchKeyOf = null;
+
+try
+{
+	return inn.newResult(BuildSchema());
+}
+catch (ApplicationException ex)
+{
+	Item error = inn.newError(ex.Message);
+	if (badMatchKeyOf != null)
+	{
+		error.setErrorCode("MCE_MATCH_KEY_INVALID");
+		error.setErrorDetail(badMatchKeyOf);
+	}
+	return error;
+}
+
+// ---------------------------------------------------------------------------------
+// Schema
+// ---------------------------------------------------------------------------------
+
+string BuildSchema()
+{
+	string jobId = Input("job_id");
+	string itemTypeName = Input("itemtype");
+	bool allRelationships = Input("all_relationships") == "1";
+	bool fromJob = jobId.Length > 0;
+	if (fromJob && (itemTypeName.Length > 0 || allRelationships))
+	{
+		throw new ApplicationException("FRG_MCE_GetTemplateSchema: 'job_id' cannot be combined with 'itemtype' or 'all_relationships'.");
+	}
+	if (!fromJob && itemTypeName.Length == 0)
+	{
+		throw new ApplicationException("FRG_MCE_GetTemplateSchema: the 'itemtype' property or the 'job_id' property is required.");
+	}
+
+	List<string> relationshipNames = new List<string>();
+	foreach (string part in Input("relationship_types").Split('|'))
+	{
+		string name = part.Trim();
+		if (name.Length > 0 && !relationshipNames.Contains(name, StringComparer.OrdinalIgnoreCase))
+		{
+			relationshipNames.Add(name);
+		}
+	}
+
+	// The main ItemTypes, one per main sheet: the job's targets, in their order, or the
+	// ItemType asked for. A user who cannot read one gets no rows back.
+	List<XmlElement> mainTypes = new List<XmlElement>();
+	List<XmlElement> sheetRows = new List<XmlElement>();
+	if (fromJob)
+	{
+		List<XmlElement> jobs = Query(
+			"<Item type=\"FRG_MassCreateEdit\" action=\"get\" select=\"target_itemtype,targets\" id=\"" + Xml(jobId) + "\"/>");
+		if (jobs.Count != 1)
+		{
+			throw new ApplicationException("Mass Create & Edit job '" + jobId + "' was not found, or you have no access to it.");
+		}
+		List<string> jobTargetIds = JobTargetIds(jobs[0]);
+		List<XmlElement> found = Query(
+			"<Item type=\"ItemType\" action=\"get\" select=\"" + ItemTypeSelect + "\" idlist=\"" + string.Join(",", jobTargetIds.Select(Xml)) + "\"/>");
+		foreach (string targetId in jobTargetIds)
+		{
+			XmlElement target = found.FirstOrDefault(t => t.GetAttribute("id") == targetId);
+			if (target == null)
+			{
+				throw new ApplicationException("A target ItemType of the job was not found, or you have no access to it.");
+			}
+			mainTypes.Add(target);
+		}
+		sheetRows = Query(
+			"<Item type=\"FRG_MassCreateEdit_Sheet\" action=\"get\" select=\"relationship_type,match_properties,item_type\">" +
+			"<source_id>" + Xml(jobId) + "</source_id></Item>");
+	}
+	else
+	{
+		List<XmlElement> found = Query(
+			"<Item type=\"ItemType\" action=\"get\" select=\"" + ItemTypeSelect + "\">" +
+			"<name>" + Xml(itemTypeName) + "</name></Item>");
+		if (found.Count != 1)
+		{
+			throw new ApplicationException("ItemType '" + itemTypeName + "' was not found, or you have no access to it.");
+		}
+		mainTypes.Add(found[0]);
+	}
+	foreach (XmlElement type in mainTypes)
+	{
+		itemTypesById[type.GetAttribute("id")] = type;
+		if (IsPolymorphic(type))
+		{
+			throw new ApplicationException("ItemType '" + Text(type, "name") + "' is polymorphic. Polymorphic ItemTypes are not supported.");
+		}
+	}
+	List<string> mainIds = mainTypes.Select(type => type.GetAttribute("id")).ToList();
+	// The ItemType the itemtype and all_relationships forms ask about; with a job, the first target.
+	XmlElement mainType = mainTypes[0];
+	string mainId = mainIds[0];
+	itemTypeName = Text(mainType, "name");
+
+	// The RelationshipTypes that become sheets, which must belong to a main ItemType,
+	// and the match key stored for each (by RelationshipType id; none means the default).
+	List<XmlElement> relationshipTypes = new List<XmlElement>();
+	List<XmlElement> everyRelationship = new List<XmlElement>();
+	Dictionary<string, string> storedMatchKeys = new Dictionary<string, string>(StringComparer.Ordinal);
+	if (fromJob)
+	{
+		// The Sheet rows of the main sheets name an ItemType and no relationship.
+		sheetRows = sheetRows.Where(row => Text(row, "relationship_type").Length > 0 || Text(row, "item_type").Length == 0).ToList();
+		List<string> ids = new List<string>();
+		foreach (XmlElement sheetRow in sheetRows)
+		{
+			string id = Text(sheetRow, "relationship_type");
+			string name = Attribute(sheetRow, "relationship_type", "keyed_name");
+			if (id.Length == 0)
+			{
+				throw new ApplicationException("A Sheet row of the job has no relationship.");
+			}
+			if (ids.Contains(id))
+			{
+				throw new ApplicationException("The job has two Sheet rows for relationship '" + name + "'.");
+			}
+			ids.Add(id);
+			storedMatchKeys[id] = Text(sheetRow, "match_properties");
+		}
+		if (ids.Count > 0)
+		{
+			List<XmlElement> rows = Query(
+				"<Item type=\"RelationshipType\" action=\"get\" select=\"" + RelationshipTypeSelect + "\" idlist=\"" + string.Join(",", ids.Select(Xml)) + "\"/>");
+			List<string> missing = new List<string>();
+			foreach (XmlElement sheetRow in sheetRows)
+			{
+				string id = Text(sheetRow, "relationship_type");
+				XmlElement row = rows.FirstOrDefault(r => r.GetAttribute("id") == id);
+				if (row == null || !mainIds.Contains(Text(row, "source_id")) || Text(row, "relationship_id").Length == 0)
+				{
+					missing.Add(Attribute(sheetRow, "relationship_type", "keyed_name"));
+				}
+				else
+				{
+					relationshipTypes.Add(row);
+				}
+			}
+			if (missing.Count > 0)
+			{
+				throw new ApplicationException(
+					"These relationships of the job's Sheet rows were not found on " +
+					(mainTypes.Count == 1 ? "ItemType '" + itemTypeName + "'" : "the job's target ItemTypes") + ", or you have no access to them: " +
+					string.Join(", ", missing) + ".");
+			}
+			// Grouped by their main sheet, in the order of the targets; in tab order within.
+			relationshipTypes = InTabOrder(relationshipTypes).OrderBy(r => mainIds.IndexOf(Text(r, "source_id"))).ToList();
+		}
+	}
+	else if (allRelationships)
+	{
+		everyRelationship = InTabOrder(Query(
+			"<Item type=\"RelationshipType\" action=\"get\" select=\"" + RelationshipTypeSelect + "\">" +
+			"<source_id>" + mainId + "</source_id></Item>"));
+		relationshipTypes.AddRange(everyRelationship);
+	}
+	else if (relationshipNames.Count > 0)
+	{
+		List<XmlElement> rows = Query(
+			"<Item type=\"RelationshipType\" action=\"get\" select=\"" + RelationshipTypeSelect + "\">" +
+			"<source_id>" + mainId + "</source_id>" +
+			"<name condition=\"in\">" + InList(relationshipNames) + "</name></Item>");
+		List<string> missing = new List<string>();
+		foreach (string name in relationshipNames)
+		{
+			XmlElement row = rows.FirstOrDefault(r => string.Equals(Text(r, "name"), name, StringComparison.OrdinalIgnoreCase));
+			if (row == null || Text(row, "relationship_id").Length == 0)
+			{
+				missing.Add(name);
+			}
+			else
+			{
+				relationshipTypes.Add(row);
+			}
+		}
+		if (missing.Count > 0)
+		{
+			throw new ApplicationException(
+				"These relationships were not found on ItemType '" + itemTypeName + "', or you have no access to them: " +
+				string.Join(", ", missing) + ".");
+		}
+	}
+
+	// The relationship ItemTypes and their related ItemTypes.
+	List<string> typeIds = new List<string>();
+	foreach (XmlElement relationshipType in relationshipTypes)
+	{
+		typeIds.Add(Text(relationshipType, "relationship_id"));
+		typeIds.Add(Text(relationshipType, "related_id"));
+	}
+	LoadItemTypes(typeIds);
+
+	// A relationship that is shown by a page of its own has no rows a user edits in a
+	// grid. A sheet asked for by name is still built for it; a job and
+	// the list of all relationships leave it out.
+	HashSet<string> withOwnPage = fromJob || allRelationships
+		? RelationshipsWithOwnPage(relationshipTypes)
+		: new HashSet<string>(StringComparer.Ordinal);
+
+	// With all_relationships, a relationship that cannot be a sheet is left out and the
+	// reason is reported. Otherwise it was asked for, and the reason is the error.
+	Dictionary<string, string> reasons = new Dictionary<string, string>(StringComparer.Ordinal);
+	List<string> sheetTypeIds = new List<string>(mainIds);
+	List<string> propertyTypeIds = new List<string>(mainIds);
+	List<XmlElement> usable = new List<XmlElement>();
+	foreach (XmlElement relationshipType in relationshipTypes)
+	{
+		string reason = WhyNotASheet(relationshipType, withOwnPage);
+		if (reason != null)
+		{
+			if (!allRelationships)
+			{
+				throw new ApplicationException(reason);
+			}
+			reasons[relationshipType.GetAttribute("id")] = reason;
+			continue;
+		}
+		usable.Add(relationshipType);
+		AddOnce(propertyTypeIds, Text(relationshipType, "related_id"));
+		AddOnce(sheetTypeIds, Text(relationshipType, "relationship_id"));
+		AddOnce(propertyTypeIds, Text(relationshipType, "relationship_id"));
+	}
+	relationshipTypes = usable;
+
+	LoadProperties(propertyTypeIds);
+
+	// A relationship row finds its parent through the parent's Unique key.
+	foreach (string sourceId in mainIds)
+	{
+		List<XmlElement> ofSource = relationshipTypes.Where(r => Text(r, "source_id") == sourceId).ToList();
+		if (ofSource.Count == 0 || KeyProperties(sourceId).Count > 0)
+		{
+			continue;
+		}
+		string reason = "ItemType '" + Text(itemTypesById[sourceId], "name") + "' has no Unique properties, so relationship rows cannot be linked to their parent item.";
+		if (!allRelationships)
+		{
+			throw new ApplicationException(reason);
+		}
+		foreach (XmlElement relationshipType in ofSource)
+		{
+			reasons[relationshipType.GetAttribute("id")] = reason;
+		}
+		relationshipTypes = relationshipTypes.Except(ofSource).ToList();
+		sheetTypeIds = new List<string>(mainIds);
+	}
+
+	LoadIdentities();
+	LoadForms(sheetTypeIds);
+
+	// The ItemTypes that item properties point at.
+	List<string> targetIds = new List<string>();
+	foreach (string typeId in propertyTypeIds)
+	{
+		foreach (XmlElement property in propsByType[typeId])
+		{
+			if (Text(property, "data_type") == "item")
+			{
+				AddOnce(targetIds, Text(property, "data_source"));
+			}
+		}
+	}
+	LoadItemTypes(targetIds);
+
+	Newtonsoft.Json.Linq.JArray sheets = new Newtonsoft.Json.Linq.JArray();
+	foreach (XmlElement type in mainTypes)
+	{
+		sheets.Add(BuildSheet(type, type, null, null));
+	}
+	foreach (XmlElement relationshipType in relationshipTypes)
+	{
+		string storedMatchKey;
+		storedMatchKeys.TryGetValue(relationshipType.GetAttribute("id"), out storedMatchKey);
+		sheets.Add(BuildSheet(itemTypesById[Text(relationshipType, "source_id")], itemTypesById[Text(relationshipType, "relationship_id")], relationshipType, storedMatchKey));
+	}
+	Newtonsoft.Json.Linq.JObject lists = BuildLists();
+
+	I18NSessionContext session = inn.getI18NSessionContext();
+	string utcNow = DateTime.UtcNow.ToString(NeutralDateFormat, CultureInfo.InvariantCulture);
+
+	Newtonsoft.Json.Linq.JObject schema = new Newtonsoft.Json.Linq.JObject();
+	schema.Add("formatVersion", FormatVersion);
+	schema.Add("database", inn.getConnection().GetDatabaseName());
+	schema.Add("generatedOn", session.ConvertUtcDateTimeToNeutral(utcNow, NeutralDateFormat));
+	schema.Add("language", session.GetLanguageCode() ?? "");
+	schema.Add("sheets", sheets);
+	schema.Add("lists", lists);
+	// An indented Part BOM can delete lines; only an indented sheet is given the column.
+	foreach (Newtonsoft.Json.Linq.JObject sheet in sheets.Cast<Newtonsoft.Json.Linq.JObject>())
+	{
+		Newtonsoft.Json.Linq.JObject sheetRelationship = sheet["relationshipType"] as Newtonsoft.Json.Linq.JObject;
+		if (sheetRelationship != null && string.Equals((string)sheetRelationship["id"], PartBomRelationshipId, StringComparison.OrdinalIgnoreCase))
+		{
+			Newtonsoft.Json.Linq.JObject deleteColumn = DeleteColumn();
+			deleteColumn.Add("indentedOnly", true);
+			((Newtonsoft.Json.Linq.JArray)sheet["columns"]).Add(deleteColumn);
+		}
+	}
+	// Which main sheet each relationship sheet belongs to, and which main sheet holds its
+	// related ItemType, by index.
+	for (int index = mainTypes.Count; index < sheets.Count; index++)
+	{
+		XmlElement relationshipType = relationshipTypes[index - mainTypes.Count];
+		int related = mainIds.IndexOf(Text(relationshipType, "related_id"));
+		sheets[index]["parentSheet"] = mainIds.IndexOf(Text(relationshipType, "source_id"));
+		sheets[index]["relatedSheet"] = related < 0 ? Newtonsoft.Json.Linq.JValue.CreateNull() : (Newtonsoft.Json.Linq.JToken)related;
+	}
+	schema.Add("definitionHash", DefinitionHash(sheets, lists));
+	if (allRelationships)
+	{
+		Newtonsoft.Json.Linq.JArray relationships = new Newtonsoft.Json.Linq.JArray();
+		foreach (XmlElement relationshipType in everyRelationship)
+		{
+			string reason;
+			reasons.TryGetValue(relationshipType.GetAttribute("id"), out reason);
+			Newtonsoft.Json.Linq.JObject relationship = RelationshipJson(relationshipType);
+			relationship.Add("canBeSheet", reason == null);
+			relationship.Add("reason", reason);
+			// Only Part BOM can be written as an indented structure. It is outside the fingerprint, like the rest of this list.
+			relationship.Add("canBeIndented", reason == null
+				&& string.Equals(relationshipType.GetAttribute("id"), PartBomRelationshipId, StringComparison.OrdinalIgnoreCase)
+				&& string.Equals(Text(relationshipType, "source_id"), PartItemTypeId, StringComparison.OrdinalIgnoreCase)
+				&& string.Equals(Text(relationshipType, "related_id"), PartItemTypeId, StringComparison.OrdinalIgnoreCase));
+			relationships.Add(relationship);
+		}
+		schema.Add("relationships", relationships);
+	}
+	return schema.ToString(Newtonsoft.Json.Formatting.None);
+}
+
+// Why a RelationshipType cannot be a sheet, or null when it can.
+string WhyNotASheet(XmlElement relationshipType, HashSet<string> withOwnPage)
+{
+	string name = Text(relationshipType, "name");
+	string relationshipItemTypeId = Text(relationshipType, "relationship_id");
+	string relatedId = Text(relationshipType, "related_id");
+	if (Flag(relationshipType, "hide_in_all"))
+	{
+		return "Relationship '" + name + "' is hidden from every item window, so it is not offered as a sheet.";
+	}
+	if (relationshipItemTypeId.Length == 0 || !itemTypesById.ContainsKey(relationshipItemTypeId))
+	{
+		return "The ItemType of relationship '" + name + "' was not found, or you have no access to it.";
+	}
+	if (relatedId.Length > 0)
+	{
+		if (!itemTypesById.ContainsKey(relatedId))
+		{
+			return "The related ItemType of relationship '" + name + "' was not found, or you have no access to it.";
+		}
+		if (IsPolymorphic(itemTypesById[relatedId]))
+		{
+			return "Relationship '" + name + "' points at the polymorphic ItemType '" +
+				Text(itemTypesById[relatedId], "name") + "'. Polymorphic ItemTypes are not supported.";
+		}
+	}
+	if (withOwnPage.Contains(relationshipType.GetAttribute("id")))
+	{
+		return "Relationship '" + name + "' is shown by a page of its own, not as a grid of rows, so it cannot be a sheet.";
+	}
+	return null;
+}
+
+// The RelationshipTypes among the given ones whose tab is a page of its own: they have
+// a Relationship View with a start page.
+HashSet<string> RelationshipsWithOwnPage(List<XmlElement> relationshipTypes)
+{
+	HashSet<string> withOwnPage = new HashSet<string>(StringComparer.Ordinal);
+	if (relationshipTypes.Count == 0)
+	{
+		return withOwnPage;
+	}
+	foreach (XmlElement view in Query(
+		"<Item type=\"Relationship View\" action=\"get\" select=\"source_id,start_page\">" +
+		"<source_id condition=\"in\">" + InList(relationshipTypes.Select(r => r.GetAttribute("id"))) + "</source_id></Item>"))
+	{
+		if (Text(view, "start_page").Trim().Length > 0)
+		{
+			withOwnPage.Add(Text(view, "source_id"));
+		}
+	}
+	return withOwnPage;
+}
+
+// RelationshipTypes in the order of the relationship tabs of an item window.
+List<XmlElement> InTabOrder(List<XmlElement> relationshipTypes)
+{
+	return SortedBySortOrder(relationshipTypes).ThenBy(r => Text(r, "name"), StringComparer.Ordinal).ToList();
+}
+
+// A RelationshipType with its related ItemType, which is null when it has none.
+Newtonsoft.Json.Linq.JObject RelationshipJson(XmlElement relationshipType)
+{
+	string relatedId = Text(relationshipType, "related_id");
+	Newtonsoft.Json.Linq.JToken relatedJson = Newtonsoft.Json.Linq.JValue.CreateNull();
+	XmlElement relatedType;
+	if (relatedId.Length > 0 && itemTypesById.TryGetValue(relatedId, out relatedType))
+	{
+		relatedJson = ItemTypeJson(relatedType, false);
+	}
+	else if (relatedId.Length > 0)
+	{
+		// The caller cannot read the related ItemType. Its name still comes with the RelationshipType.
+		string relatedName = Attribute(relationshipType, "related_id", "keyed_name");
+		Newtonsoft.Json.Linq.JObject unknown = new Newtonsoft.Json.Linq.JObject();
+		unknown.Add("id", relatedId);
+		unknown.Add("name", relatedName);
+		unknown.Add("label", relatedName);
+		unknown.Add("isVersionable", false);
+		relatedJson = unknown;
+	}
+	Newtonsoft.Json.Linq.JObject relationship = new Newtonsoft.Json.Linq.JObject();
+	relationship.Add("id", relationshipType.GetAttribute("id"));
+	relationship.Add("name", Text(relationshipType, "name"));
+	relationship.Add("label", Label(relationshipType));
+	relationship.Add("relatedItemType", relatedJson);
+	relationship.Add("relatedRequired", Flag(relationshipType, "related_notnull"));
+	return relationship;
+}
+
+// One sheet. relationshipType is null for the main sheet; otherwise sheetType is the
+// relationship's own ItemType. storedMatchKey is the match key chosen for a relationship
+// sheet, as column ids separated by commas; null or empty stands for the default.
+Newtonsoft.Json.Linq.JObject BuildSheet(XmlElement mainType, XmlElement sheetType, XmlElement relationshipType, string storedMatchKey)
+{
+	bool isRelationship = relationshipType != null;
+	List<string> matchKey = null;
+	if (isRelationship && !string.IsNullOrWhiteSpace(storedMatchKey))
+	{
+		matchKey = storedMatchKey.Split(',').Select(part => part.Trim()).Where(part => part.Length > 0).Distinct(StringComparer.Ordinal).ToList();
+	}
+	string sheetTypeId = sheetType.GetAttribute("id");
+	List<XmlElement> properties = propsByType[sheetTypeId];
+	Newtonsoft.Json.Linq.JArray columns = new Newtonsoft.Json.Linq.JArray();
+	HashSet<string> taken = new HashSet<string>(StringComparer.Ordinal);
+
+	XmlElement relatedType = null;
+	bool createOnly;
+	bool isFileSheet = false;
+	if (isRelationship)
+	{
+		string relatedId = Text(relationshipType, "related_id");
+		if (relatedId.Length > 0)
+		{
+			relatedType = itemTypesById[relatedId];
+		}
+
+		// Key columns first: the parent's Unique key, then the related item's.
+		// The parent's key is part of every match key: a row has to name its parent.
+		foreach (XmlElement key in KeyProperties(mainType.GetAttribute("id")))
+		{
+			columns.Add(BuildColumn(key, "parent." + Text(key, "name"), "parentKey", "key", true, true, null));
+		}
+		// The related item's key is in the match key as a whole or not at all. Out of
+		// the match key it still names the related item of the row.
+		// A relationship to File names its file by the file name, which is no Unique property.
+		isFileSheet = relatedType != null && IsFileType(relatedId);
+		List<XmlElement> relatedKeys = relatedType == null ? new List<XmlElement>()
+			: isFileSheet ? propsByType[relatedId].Where(p => Text(p, "name") == "filename").ToList()
+			: KeyProperties(relatedId);
+		bool relatedInMatchKey = true;
+		if (matchKey != null)
+		{
+			List<string> relatedIds = relatedKeys.Select(key => "related." + Text(key, "name")).ToList();
+			int listed = relatedIds.Count(id => matchKey.Contains(id));
+			if (listed > 0 && listed < relatedIds.Count)
+			{
+				badMatchKeyOf = relationshipType.GetAttribute("id");
+				throw new ApplicationException(
+					"The match key of relationship '" + Text(relationshipType, "name") + "' names a part of the related item's Unique key. " +
+					"It takes all of these columns or none of them: " + string.Join(", ", relatedIds) + ".");
+			}
+			relatedInMatchKey = listed > 0;
+		}
+		foreach (XmlElement key in relatedKeys)
+		{
+			Newtonsoft.Json.Linq.JObject column = BuildColumn(key, "related." + Text(key, "name"), "relatedKey", "key", true, relatedInMatchKey, null);
+			if (isFileSheet)
+			{
+				column["dataType"] = "file";
+				column["storedLength"] = null;
+				column["pattern"] = null;
+			}
+			columns.Add(column);
+		}
+
+		// The two ends of the relationship are given by the key columns above.
+		taken.Add("source_id");
+		taken.Add("related_id");
+
+		// Rows of a relationship to an ItemType without a Unique key cannot name an
+		// existing related item, so they can only be created. A file is named by its name.
+		createOnly = relatedType != null && relatedKeys.Count == 0;
+	}
+	else
+	{
+		createOnly = KeyProperties(sheetTypeId).Count == 0;
+	}
+
+	// The Form fields of this ItemType, in the order they are read on screen (see
+	// InReadingOrder), Form by Form. A property with an enabled
+	// field on any of the user's Forms is a column. A property whose fields are all
+	// disabled stays out, even when the grid shows it.
+	HashSet<string> enabledOnForm = new HashSet<string>(StringComparer.Ordinal);
+	HashSet<string> onForm = new HashSet<string>(StringComparer.Ordinal);
+	List<XmlElement> formOrder = new List<XmlElement>();
+	Dictionary<string, string> fieldLabels = new Dictionary<string, string>(StringComparer.Ordinal);
+	foreach (string formId in UserForms(sheetType))
+	{
+		List<XmlElement> fields;
+		if (!fieldsByForm.TryGetValue(formId, out fields))
+		{
+			continue;
+		}
+		foreach (XmlElement field in fields)
+		{
+			XmlElement property;
+			if (!propsById.TryGetValue(Text(field, "propertytype_id"), out property) || Text(property, "source_id") != sheetTypeId)
+			{
+				continue;
+			}
+			string propertyId = property.GetAttribute("id");
+			onForm.Add(propertyId);
+			if (Flag(field, "is_disabled"))
+			{
+				continue;
+			}
+			if (enabledOnForm.Add(propertyId))
+			{
+				formOrder.Add(property);
+			}
+			if (!fieldLabels.ContainsKey(propertyId) && Text(field, "label").Length > 0)
+			{
+				fieldLabels[propertyId] = Text(field, "label");
+			}
+		}
+	}
+
+	// The ordered property columns with their source: Form fields first, then what
+	// only the grid shows, in the order of the property definitions.
+	List<KeyValuePair<XmlElement, string>> chosen = new List<KeyValuePair<XmlElement, string>>();
+	foreach (XmlElement property in formOrder)
+	{
+		if (IsImportable(property) && taken.Add(Text(property, "name")))
+		{
+			chosen.Add(new KeyValuePair<XmlElement, string>(property, "form"));
+		}
+	}
+	string hiddenFlag = isRelationship ? "is_hidden2" : "is_hidden";
+	foreach (XmlElement property in properties)
+	{
+		string name = Text(property, "name");
+		if (!Flag(property, hiddenFlag) && !onForm.Contains(property.GetAttribute("id")) &&
+			!serverManaged.Contains(name) && IsImportable(property) && taken.Add(name))
+		{
+			chosen.Add(new KeyValuePair<XmlElement, string>(property, "grid"));
+		}
+	}
+
+	if (isRelationship)
+	{
+		// The sequence is part of the default match key, so it is always a column. A file
+		// sheet matches a row by its file name instead.
+		if (!isFileSheet && !chosen.Any(c => Text(c.Key, "name") == "sort_order"))
+		{
+			XmlElement sequence = properties.FirstOrDefault(p => Text(p, "name") == "sort_order");
+			if (sequence != null)
+			{
+				chosen.Insert(0, new KeyValuePair<XmlElement, string>(sequence, "key"));
+			}
+		}
+		// A property the match key names is a column too, whatever the Form and grid show.
+		if (matchKey != null)
+		{
+			HashSet<string> keyColumnIds = new HashSet<string>(columns.Select(c => (string)c["id"]), StringComparer.Ordinal);
+			foreach (string id in matchKey)
+			{
+				if (keyColumnIds.Contains(id) || chosen.Any(c => Text(c.Key, "name") == id))
+				{
+					continue;
+				}
+				XmlElement named = properties.FirstOrDefault(p => Text(p, "name") == id);
+				if (named == null || taken.Contains(id) || serverManaged.Contains(id) || !IsImportable(named))
+				{
+					badMatchKeyOf = relationshipType.GetAttribute("id");
+					throw new ApplicationException(
+						"The match key of relationship '" + Text(relationshipType, "name") + "' names '" + id +
+						"', which is not a column this sheet can have.");
+				}
+				chosen.Add(new KeyValuePair<XmlElement, string>(named, "key"));
+			}
+		}
+		foreach (KeyValuePair<XmlElement, string> column in chosen)
+		{
+			string name = Text(column.Key, "name");
+			bool inMatchKey = matchKey == null ? name == "sort_order" && !isFileSheet : matchKey.Contains(name);
+			columns.Add(BuildColumn(column.Key, name, "property", column.Value, false, inMatchKey, fieldLabels));
+		}
+		// A sheet whose rows hold files can delete rows: a related File, or a property that points at File.
+		if (isFileSheet || chosen.Any(c => IsFileProperty(c.Key)))
+		{
+			columns.Add(DeleteColumn());
+		}
+	}
+	else
+	{
+		// The Unique key comes first and is always there, whatever the Form and grid show.
+		List<XmlElement> keys = KeyProperties(sheetTypeId);
+		foreach (XmlElement key in keys)
+		{
+			string source = "key";
+			foreach (KeyValuePair<XmlElement, string> column in chosen)
+			{
+				if (column.Key == key)
+				{
+					source = column.Value;
+				}
+			}
+			columns.Add(BuildColumn(key, Text(key, "name"), "property", source, true, false, fieldLabels));
+		}
+		foreach (KeyValuePair<XmlElement, string> column in chosen)
+		{
+			if (!keys.Contains(column.Key))
+			{
+				columns.Add(BuildColumn(column.Key, Text(column.Key, "name"), "property", column.Value, false, false, fieldLabels));
+			}
+		}
+	}
+
+	Newtonsoft.Json.Linq.JObject sheet = new Newtonsoft.Json.Linq.JObject();
+	sheet.Add("kind", isRelationship ? "relationship" : "main");
+	sheet.Add("itemType", ItemTypeJson(sheetType, false));
+	if (isRelationship)
+	{
+		sheet.Add("relationshipType", RelationshipJson(relationshipType));
+	}
+	else
+	{
+		sheet.Add("relationshipType", Newtonsoft.Json.Linq.JValue.CreateNull());
+	}
+	sheet.Add("createOnly", createOnly);
+	List<string> classPaths = SelectableClassPaths(sheetType);
+	sheet.Add("classPaths", classPaths == null ? Newtonsoft.Json.Linq.JValue.CreateNull() : (Newtonsoft.Json.Linq.JToken)new Newtonsoft.Json.Linq.JArray(classPaths));
+	sheet.Add("columns", columns);
+	// The Unique properties of the relationship ItemType itself. The database enforces
+	// them besides the match key; a property that is no column keeps its default.
+	if (isRelationship)
+	{
+		Newtonsoft.Json.Linq.JArray unique = new Newtonsoft.Json.Linq.JArray();
+		foreach (XmlElement property in KeyProperties(sheetType.GetAttribute("id")))
+		{
+			Newtonsoft.Json.Linq.JObject entry = new Newtonsoft.Json.Linq.JObject();
+			entry.Add("property", Text(property, "name"));
+			entry.Add("defaultValue", NullIfEmpty(Text(property, "default_value")));
+			unique.Add(entry);
+		}
+		sheet.Add("uniqueProperties", unique);
+	}
+	else
+	{
+		sheet.Add("uniqueProperties", Newtonsoft.Json.Linq.JValue.CreateNull());
+	}
+	return sheet;
+}
+
+// fieldLabels holds the labels of the sheet's enabled Form fields by property id. It is
+// null for the key columns of a relationship sheet, which belong to other ItemTypes.
+Newtonsoft.Json.Linq.JObject BuildColumn(XmlElement property, string id, string role, string source, bool isKey, bool isMatchKey, Dictionary<string, string> fieldLabels)
+{
+	string name = Text(property, "name");
+	string dataType = IsFileProperty(property) ? "file" : Text(property, "data_type");
+	string dataSource = Text(property, "data_source");
+	string pattern = Text(property, "pattern");
+
+	// A property without a label of its own goes by the label of its Form field,
+	// which is what the user knows it as, and failing that by its name.
+	string label = Text(property, "label");
+	if (label.Length == 0 && (fieldLabels == null || !fieldLabels.TryGetValue(property.GetAttribute("id"), out label)))
+	{
+		label = name;
+	}
+
+	string listId = null;
+	if (listTypes.Contains(dataType) && dataSource.Length > 0)
+	{
+		listId = dataSource;
+		(dataType == "filter list" ? filterValueLists : valueLists).Add(listId);
+	}
+
+	Newtonsoft.Json.Linq.JToken itemTarget = Newtonsoft.Json.Linq.JValue.CreateNull();
+	if (dataType == "item" && dataSource.Length > 0)
+	{
+		XmlElement target;
+		if (itemTypesById.TryGetValue(dataSource, out target))
+		{
+			itemTarget = ItemTypeJson(target, true);
+		}
+		else
+		{
+			// The caller cannot read the target ItemType. Its name still comes with the property.
+			string targetName = Attribute(property, "data_source", "keyed_name");
+			Newtonsoft.Json.Linq.JObject unknown = new Newtonsoft.Json.Linq.JObject();
+			unknown.Add("id", dataSource);
+			unknown.Add("name", targetName);
+			unknown.Add("label", targetName);
+			unknown.Add("isVersionable", false);
+			unknown.Add("isPolymorphic", false);
+			itemTarget = unknown;
+		}
+	}
+
+	Newtonsoft.Json.Linq.JObject column = new Newtonsoft.Json.Linq.JObject();
+	column.Add("id", id);
+	column.Add("role", role);
+	column.Add("property", name);
+	column.Add("label", label);
+	column.Add("dataType", dataType);
+	column.Add("required", isKey || Flag(property, "is_required"));
+	column.Add("isKey", isKey);
+	column.Add("isMatchKey", isMatchKey);
+	// On a relationship sheet the key columns belong to other ItemTypes, whose class
+	// structures are not the sheet's.
+	column.Add("isClassification", role == "property" && name == "classification");
+	column.Add("source", source);
+	column.Add("storedLength", Number(property, "stored_length"));
+	column.Add("precision", Number(property, "prec"));
+	column.Add("scale", Number(property, "scale"));
+	// The pattern of a date names its format and the pattern of a string is a regular
+	// expression. On other data types it means something else and is left out.
+	column.Add("pattern", (dataType == "date" || dataType == "string") && pattern.Length > 0 ? pattern : null);
+	column.Add("minRange", Number(property, "min_range"));
+	column.Add("maxRange", Number(property, "max_range"));
+	column.Add("rangeInclusive", Flag(property, "range_inclusive"));
+	column.Add("defaultValue", NullIfEmpty(Text(property, "default_value")));
+	column.Add("classPath", NullIfEmpty(Text(property, "class_path")));
+	column.Add("listId", listId);
+	// A filter list shows the values that belong to the value of another property of the
+	// item; the pattern of a filter list names that property.
+	column.Add("filterBy", dataType == "filter list" && pattern.Length > 0 ? pattern : null);
+	column.Add("itemTarget", itemTarget);
+	return column;
+}
+
+// The column of a file relationship sheet that deletes the row it matches: its only value
+// is #DELETE. It belongs to no property.
+Newtonsoft.Json.Linq.JObject DeleteColumn()
+{
+	Newtonsoft.Json.Linq.JObject column = new Newtonsoft.Json.Linq.JObject();
+	column.Add("id", "delete");
+	column.Add("role", "delete");
+	column.Add("property", null);
+	column.Add("label", "Delete");
+	column.Add("dataType", "delete");
+	column.Add("required", false);
+	column.Add("isKey", false);
+	column.Add("isMatchKey", false);
+	column.Add("isClassification", false);
+	column.Add("source", "tool");
+	column.Add("storedLength", null);
+	column.Add("precision", null);
+	column.Add("scale", null);
+	column.Add("pattern", null);
+	column.Add("minRange", null);
+	column.Add("maxRange", null);
+	column.Add("rangeInclusive", false);
+	column.Add("defaultValue", null);
+	column.Add("classPath", null);
+	column.Add("listId", null);
+	column.Add("filterBy", null);
+	column.Add("itemTarget", null);
+	return column;
+}
+
+Newtonsoft.Json.Linq.JObject ItemTypeJson(XmlElement itemType, bool withPolymorphic)
+{
+	Newtonsoft.Json.Linq.JObject json = new Newtonsoft.Json.Linq.JObject();
+	json.Add("id", itemType.GetAttribute("id"));
+	json.Add("name", Text(itemType, "name"));
+	json.Add("label", Label(itemType));
+	json.Add("isVersionable", Flag(itemType, "is_versionable"));
+	if (withPolymorphic)
+	{
+		json.Add("isPolymorphic", IsPolymorphic(itemType));
+	}
+	return json;
+}
+
+// Every List the columns use, once, keyed by its id. A filter list takes its Filter
+// Value rows; the same value can appear there once per filter, so repeats are dropped.
+Newtonsoft.Json.Linq.JObject BuildLists()
+{
+	List<string> listIds = valueLists.Union(filterValueLists).OrderBy(id => id, StringComparer.Ordinal).ToList();
+	Newtonsoft.Json.Linq.JObject lists = new Newtonsoft.Json.Linq.JObject();
+	if (listIds.Count == 0)
+	{
+		return lists;
+	}
+
+	Dictionary<string, string> names = new Dictionary<string, string>(StringComparer.Ordinal);
+	foreach (XmlElement list in Query("<Item type=\"List\" action=\"get\" select=\"id,name\" idlist=\"" + string.Join(",", listIds) + "\"/>"))
+	{
+		names[list.GetAttribute("id")] = Text(list, "name");
+	}
+
+	Dictionary<string, List<XmlElement>> rowsByList = new Dictionary<string, List<XmlElement>>(StringComparer.Ordinal);
+	List<XmlElement> rows = new List<XmlElement>();
+	if (valueLists.Count > 0)
+	{
+		rows.AddRange(SortedBySortOrder(Query(
+			"<Item type=\"Value\" action=\"get\" select=\"source_id,value,label,sort_order,inactive\">" +
+			"<source_id condition=\"in\">" + InList(valueLists) + "</source_id></Item>")));
+	}
+	if (filterValueLists.Count > 0)
+	{
+		rows.AddRange(SortedBySortOrder(Query(
+			"<Item type=\"Filter Value\" action=\"get\" select=\"source_id,value,label,sort_order,inactive\">" +
+			"<source_id condition=\"in\">" + InList(filterValueLists) + "</source_id></Item>")));
+	}
+	foreach (XmlElement row in rows)
+	{
+		string listId = Text(row, "source_id");
+		if (!rowsByList.ContainsKey(listId))
+		{
+			rowsByList[listId] = new List<XmlElement>();
+		}
+		rowsByList[listId].Add(row);
+	}
+
+	foreach (string listId in listIds)
+	{
+		Newtonsoft.Json.Linq.JArray values = new Newtonsoft.Json.Linq.JArray();
+		HashSet<string> seen = new HashSet<string>(StringComparer.Ordinal);
+		List<XmlElement> listRows;
+		if (rowsByList.TryGetValue(listId, out listRows))
+		{
+			foreach (XmlElement row in listRows)
+			{
+				string value = Text(row, "value");
+				if (value.Length == 0 || Flag(row, "inactive") || !seen.Add(value))
+				{
+					continue;
+				}
+				Newtonsoft.Json.Linq.JObject entry = new Newtonsoft.Json.Linq.JObject();
+				entry.Add("value", value);
+				entry.Add("label", Text(row, "label"));
+				values.Add(entry);
+			}
+		}
+		Newtonsoft.Json.Linq.JObject json = new Newtonsoft.Json.Linq.JObject();
+		json.Add("name", names.ContainsKey(listId) ? names[listId] : "");
+		json.Add("values", values);
+		lists.Add(listId, json);
+	}
+	return lists;
+}
+
+// A fingerprint of everything that comes from definitions: the sheets with their
+// columns and class paths, and the Lists in id order. The database name and the time
+// of generation are not part of it, so it changes only when a definition does.
+string DefinitionHash(Newtonsoft.Json.Linq.JArray sheets, Newtonsoft.Json.Linq.JObject lists)
+{
+	Newtonsoft.Json.Linq.JObject definitions = new Newtonsoft.Json.Linq.JObject();
+	definitions.Add("sheets", sheets.DeepClone());
+	definitions.Add("lists", lists.DeepClone());
+	byte[] bytes = Encoding.UTF8.GetBytes(definitions.ToString(Newtonsoft.Json.Formatting.None));
+	StringBuilder hex = new StringBuilder();
+	using (System.Security.Cryptography.SHA256 sha = System.Security.Cryptography.SHA256.Create())
+	{
+		foreach (byte b in sha.ComputeHash(bytes))
+		{
+			hex.Append(b.ToString("x2", CultureInfo.InvariantCulture));
+		}
+	}
+	return hex.ToString();
+}
+
+// ---------------------------------------------------------------------------------
+// Property rules
+// ---------------------------------------------------------------------------------
+
+// The Unique properties of an ItemType, which together are its key.
+List<XmlElement> KeyProperties(string itemTypeId)
+{
+	return propsByType[itemTypeId].Where(p => Flag(p, "is_keyed")).ToList();
+}
+
+bool IsImportable(XmlElement property)
+{
+	string dataType = Text(property, "data_type");
+	if (Flag(property, "readonly") || Flag(property, "is_federated") || !importableTypes.Contains(dataType))
+	{
+		return false;
+	}
+	return true;
+}
+
+// Whether a property points at a File: its column holds a file name.
+bool IsFileProperty(XmlElement property)
+{
+	return Text(property, "data_type") == "item" && IsFileType(Text(property, "data_source"));
+}
+
+bool IsFileType(string itemTypeId)
+{
+	XmlElement itemType;
+	return itemTypeId == FileItemTypeId || (itemTypesById.TryGetValue(itemTypeId, out itemType) && Text(itemType, "name") == "File");
+}
+
+bool IsPolymorphic(XmlElement itemType)
+{
+	return Text(itemType, "implementation_type") == "polymorphic";
+}
+
+// ---------------------------------------------------------------------------------
+// Forms
+// ---------------------------------------------------------------------------------
+
+// The Forms the user gets for an ItemType: the one for items without a class first,
+// then the one of each class that has a Form of its own.
+List<string> UserForms(XmlElement itemType)
+{
+	List<string> forms = new List<string>();
+	List<XmlElement> views;
+	if (!viewsByType.TryGetValue(itemType.GetAttribute("id"), out views))
+	{
+		return forms;
+	}
+	List<string> classes = new List<string> { "" };
+	foreach (XmlElement view in views)
+	{
+		AddOnce(classes, Text(view, "form_classification"));
+	}
+	foreach (string classification in classes)
+	{
+		foreach (string mode in formModes)
+		{
+			AddOnce(forms, ResolveForm(views, mode, classification));
+		}
+	}
+	return forms;
+}
+
+// Picks the Form the user gets when opening an item. Views are tried for the user's own
+// identity first, then for the identities the user is a member of, then for World. In
+// each group a View of the wanted mode is preferred over a "default" View.
+string ResolveForm(List<XmlElement> views, string mode, string classification)
+{
+	HashSet<string> memberOf = new HashSet<string>(userIdentities, StringComparer.Ordinal);
+	memberOf.Remove(WorldIdentityId);
+	HashSet<string> world = new HashSet<string>(StringComparer.Ordinal) { WorldIdentityId };
+
+	foreach (HashSet<string> roles in new HashSet<string>[] { aliasIdentities, memberOf, world })
+	{
+		string formId = BestForm(views, roles, mode, classification);
+		if (formId.Length == 0 && mode != "default")
+		{
+			formId = BestForm(views, roles, "default", classification);
+		}
+		if (formId.Length > 0)
+		{
+			return formId;
+		}
+	}
+	return "";
+}
+
+string BestForm(List<XmlElement> views, HashSet<string> roles, string mode, string classification)
+{
+	List<XmlElement> candidates = new List<XmlElement>();
+	if (classification.Length > 0)
+	{
+		// Class-specific Views of the wanted mode; failing those, of any mode but the
+		// two special ones. Their class must equal the item's class exactly.
+		List<XmlElement> classViews = views.Where(v => IsClassView(v) && roles.Contains(Text(v, "role")) && Text(v, "type") == mode).ToList();
+		if (classViews.Count == 0)
+		{
+			classViews = views.Where(v => IsClassView(v) && roles.Contains(Text(v, "role")) &&
+				Text(v, "type") != "complete" && Text(v, "type") != "preview").ToList();
+		}
+		HashSet<string> formIds = new HashSet<string>(
+			classViews.Where(v => Text(v, "form_classification") == classification).Select(v => Text(v, "related_id")),
+			StringComparer.Ordinal);
+		if (formIds.Count > 0)
+		{
+			candidates = views.Where(v => IsClassView(v) && Text(v, "type") == mode && formIds.Contains(Text(v, "related_id"))).ToList();
+		}
+	}
+	if (candidates.Count == 0)
+	{
+		candidates = views.Where(v => Text(v, "related_id").Length > 0 && Text(v, "form_classification").Length == 0 &&
+			roles.Contains(Text(v, "role")) && Text(v, "type") == mode).ToList();
+	}
+	if (candidates.Count == 0)
+	{
+		return "";
+	}
+
+	// The lowest display priority wins, and the first View wins a tie.
+	XmlElement best = candidates[0];
+	foreach (XmlElement view in candidates.Skip(1))
+	{
+		if (PriorityIsAfter(Text(best, "display_priority"), Text(view, "display_priority")))
+		{
+			best = view;
+		}
+	}
+	return Text(best, "related_id");
+}
+
+bool IsClassView(XmlElement view)
+{
+	return Text(view, "related_id").Length > 0 && Text(view, "form_classification").Length > 0;
+}
+
+// True when priority a comes after priority b. The two values are compared as text, so
+// "10" sorts before "9"; a View without a priority comes last.
+bool PriorityIsAfter(string a, string b)
+{
+	if (a.Length == 0)
+	{
+		return b.Length > 0;
+	}
+	if (b.Length == 0)
+	{
+		return false;
+	}
+	return string.CompareOrdinal(a, b) > 0;
+}
+
+// ---------------------------------------------------------------------------------
+// Classification
+// ---------------------------------------------------------------------------------
+
+// The class paths the user may pick: every leaf of the class structure, without the
+// root, in tree order. Null when the ItemType has no classes.
+List<string> SelectableClassPaths(XmlElement itemType)
+{
+	XmlElement stored = ParseClassStructure(Text(itemType, "class_structure"));
+	if (stored == null)
+	{
+		return null;
+	}
+
+	// The stored tree does not say which classes this user may create items in, so the
+	// class structure is also asked for as the user gets it, with the classes that cannot
+	// be picked marked. That copy is used when it can be had; the import checks every
+	// classification again in any case.
+	XmlElement marked = null;
+	try
+	{
+		XmlNode result = CallServer("GetItemTypeForClient",
+			"<Item type=\"ItemType\" action=\"get\"><id>" + itemType.GetAttribute("id") + "</id></Item>");
+		XmlNode structure = result == null ? null : result.SelectSingleNode("Item/class_structure");
+		marked = structure == null ? null : ParseClassStructure(structure.InnerText);
+	}
+	catch (Exception)
+	{
+		marked = null;
+	}
+
+	List<string> paths = new List<string>();
+	CollectClassPaths(marked ?? stored, "", paths);
+	return paths;
+}
+
+// The root element of a class structure, or null when it has no classes below the root.
+XmlElement ParseClassStructure(string xml)
+{
+	if (string.IsNullOrWhiteSpace(xml))
+	{
+		return null;
+	}
+	XmlDocument document = new XmlDocument();
+	document.XmlResolver = null;
+	try
+	{
+		document.LoadXml(xml);
+	}
+	catch (XmlException)
+	{
+		return null;
+	}
+	XmlElement root = document.DocumentElement;
+	return root != null && root.SelectSingleNode("class") != null ? root : null;
+}
+
+void CollectClassPaths(XmlElement parent, string prefix, List<string> paths)
+{
+	foreach (XmlNode child in parent.ChildNodes)
+	{
+		XmlElement classElement = child as XmlElement;
+		if (classElement == null || classElement.Name != "class")
+		{
+			continue;
+		}
+		string path = prefix.Length == 0 ? classElement.GetAttribute("name") : prefix + "/" + classElement.GetAttribute("name");
+		if (classElement.SelectSingleNode("class") != null)
+		{
+			CollectClassPaths(classElement, path, paths);
+		}
+		else if (classElement.GetAttribute("enabled") != "0")
+		{
+			paths.Add(path);
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------------
+// Reading definitions
+// ---------------------------------------------------------------------------------
+
+void LoadItemTypes(IEnumerable<string> ids)
+{
+	List<string> wanted = ids.Where(id => id.Length > 0 && !itemTypesById.ContainsKey(id)).Distinct().ToList();
+	if (wanted.Count == 0)
+	{
+		return;
+	}
+	foreach (XmlElement itemType in Query(
+		"<Item type=\"ItemType\" action=\"get\" select=\"" + ItemTypeSelect + "\" idlist=\"" + string.Join(",", wanted) + "\"/>"))
+	{
+		itemTypesById[itemType.GetAttribute("id")] = itemType;
+	}
+}
+
+// The properties of the given ItemTypes, each list in the order of the property definitions.
+void LoadProperties(List<string> itemTypeIds)
+{
+	foreach (string id in itemTypeIds)
+	{
+		propsByType[id] = new List<XmlElement>();
+	}
+	List<XmlElement> rows = Query(
+		"<Item type=\"Property\" action=\"get\" select=\"source_id,name,label,data_type,data_source,stored_length,prec,scale," +
+		"pattern,min_range,max_range,range_inclusive,default_value,class_path,is_required,is_keyed,is_hidden,is_hidden2," +
+		"readonly,is_federated,sort_order\">" +
+		"<source_id condition=\"in\">" + InList(itemTypeIds) + "</source_id></Item>");
+	foreach (XmlElement property in SortedBySortOrder(rows).ThenBy(p => Text(p, "name"), StringComparer.Ordinal))
+	{
+		List<XmlElement> list;
+		if (propsByType.TryGetValue(Text(property, "source_id"), out list))
+		{
+			list.Add(property);
+			propsById[property.GetAttribute("id")] = property;
+		}
+	}
+}
+
+// The identities that decide which Form the user gets: the user's own (alias)
+// identity, and every identity the user is a member of in this session.
+void LoadIdentities()
+{
+	XmlNode result = CallServer("GetIdentityList", "<Item/>");
+	if (result == null)
+	{
+		throw new ApplicationException("The identities of the current user could not be read.");
+	}
+	foreach (string id in result.InnerText.Split(','))
+	{
+		if (id.Trim().Length > 0)
+		{
+			userIdentities.Add(id.Trim());
+		}
+	}
+	foreach (XmlElement alias in Query(
+		"<Item type=\"Alias\" action=\"get\" select=\"related_id\" related_expand=\"0\"><source_id>" + inn.getUserID() + "</source_id></Item>"))
+	{
+		if (Text(alias, "related_id").Length > 0)
+		{
+			aliasIdentities.Add(Text(alias, "related_id"));
+		}
+	}
+}
+
+// The Views of the given ItemTypes and the fields of every Form they point at.
+void LoadForms(List<string> itemTypeIds)
+{
+	List<XmlElement> views = Query(
+		"<Item type=\"View\" action=\"get\" select=\"source_id,related_id,role,type,form_classification,display_priority,sort_order\" related_expand=\"0\">" +
+		"<source_id condition=\"in\">" + InList(itemTypeIds) + "</source_id></Item>");
+	List<string> formIds = new List<string>();
+	foreach (XmlElement view in SortedBySortOrder(views).ThenBy(v => v.GetAttribute("id"), StringComparer.Ordinal))
+	{
+		string itemTypeId = Text(view, "source_id");
+		if (!viewsByType.ContainsKey(itemTypeId))
+		{
+			viewsByType[itemTypeId] = new List<XmlElement>();
+		}
+		viewsByType[itemTypeId].Add(view);
+		if (Text(view, "related_id").Length > 0)
+		{
+			AddOnce(formIds, Text(view, "related_id"));
+		}
+	}
+	if (formIds.Count == 0)
+	{
+		return;
+	}
+
+	List<XmlElement> bodies = SortedBySortOrder(Query(
+		"<Item type=\"Body\" action=\"get\" select=\"source_id,sort_order\">" +
+		"<source_id condition=\"in\">" + InList(formIds) + "</source_id></Item>"))
+		.ThenBy(b => b.GetAttribute("id"), StringComparer.Ordinal).ToList();
+	if (bodies.Count == 0)
+	{
+		return;
+	}
+	Dictionary<string, List<XmlElement>> fieldsByBody = new Dictionary<string, List<XmlElement>>(StringComparer.Ordinal);
+	List<XmlElement> fields = Query(
+		"<Item type=\"Field\" action=\"get\" select=\"source_id,name,field_type,propertytype_id,is_disabled,label,sort_order," +
+		"container,positioning,x,y\">" +
+		"<source_id condition=\"in\">" + InList(bodies.Select(b => b.GetAttribute("id"))) + "</source_id></Item>");
+	foreach (XmlElement field in SortedBySortOrder(fields).ThenBy(f => f.GetAttribute("id"), StringComparer.Ordinal))
+	{
+		string bodyId = Text(field, "source_id");
+		if (!fieldsByBody.ContainsKey(bodyId))
+		{
+			fieldsByBody[bodyId] = new List<XmlElement>();
+		}
+		fieldsByBody[bodyId].Add(field);
+	}
+	foreach (XmlElement body in bodies)
+	{
+		string formId = Text(body, "source_id");
+		if (!fieldsByForm.ContainsKey(formId))
+		{
+			fieldsByForm[formId] = new List<XmlElement>();
+		}
+		List<XmlElement> bodyFields;
+		if (fieldsByBody.TryGetValue(body.GetAttribute("id"), out bodyFields))
+		{
+			fieldsByForm[formId].AddRange(InReadingOrder(bodyFields));
+		}
+	}
+}
+
+// The fields of one Form body in the order a user reads them on screen: top to bottom,
+// and left to right within a row. The fields come in sorted by their sort order.
+//
+// - A field is placed by its x and y. Fields with static positioning, or without
+//   coordinates, keep their field order and follow the placed fields of the same
+//   container.
+// - Fields whose tops are within RowTolerance pixels of the topmost field of a row
+//   belong to that row, so fields on one line read left to right even when their tops
+//   differ by a few pixels.
+// - A group box is read as one block at the place of the box. Its fields have
+//   coordinates of their own inside the box, and are ordered there by the same rules.
+// - Fields at the same place keep their field order.
+List<XmlElement> InReadingOrder(List<XmlElement> fields)
+{
+	const int RowTolerance = 10;
+
+	// A field names its group box in "container". The first field of that name counts,
+	// it must be a group box, and a field cannot contain itself.
+	Dictionary<string, XmlElement> firstByName = new Dictionary<string, XmlElement>(StringComparer.Ordinal);
+	foreach (XmlElement field in fields)
+	{
+		if (!firstByName.ContainsKey(Text(field, "name")))
+		{
+			firstByName[Text(field, "name")] = field;
+		}
+	}
+	List<XmlElement> topLevel = new List<XmlElement>();
+	Dictionary<XmlElement, List<XmlElement>> contained = new Dictionary<XmlElement, List<XmlElement>>();
+	foreach (XmlElement field in fields)
+	{
+		string container = Text(field, "container");
+		XmlElement box;
+		if (container.Length > 0 && container != Text(field, "name") &&
+			firstByName.TryGetValue(container, out box) && Text(box, "field_type") == "groupbox")
+		{
+			if (!contained.ContainsKey(box))
+			{
+				contained[box] = new List<XmlElement>();
+			}
+			contained[box].Add(field);
+		}
+		else
+		{
+			topLevel.Add(field);
+		}
+	}
+
+	List<XmlElement> ordered = new List<XmlElement>();
+	HashSet<XmlElement> done = new HashSet<XmlElement>();
+
+	void Emit(List<XmlElement> siblings)
+	{
+		List<XmlElement> placed = new List<XmlElement>();
+		List<XmlElement> flowing = new List<XmlElement>();
+		foreach (XmlElement field in siblings)
+		{
+			bool hasPlace = Text(field, "positioning") != "static" && Number(field, "x") != null && Number(field, "y") != null;
+			(hasPlace ? placed : flowing).Add(field);
+		}
+
+		// Rows from the top; the sorts keep the given order of fields that compare equal.
+		List<XmlElement> arranged = new List<XmlElement>();
+		List<XmlElement> row = new List<XmlElement>();
+		int rowTop = 0;
+		foreach (XmlElement field in placed.OrderBy(f => Number(f, "y") ?? 0))
+		{
+			int top = Number(field, "y") ?? 0;
+			if (row.Count > 0 && top - rowTop > RowTolerance)
+			{
+				arranged.AddRange(row.OrderBy(f => Number(f, "x") ?? 0));
+				row.Clear();
+			}
+			if (row.Count == 0)
+			{
+				rowTop = top;
+			}
+			row.Add(field);
+		}
+		arranged.AddRange(row.OrderBy(f => Number(f, "x") ?? 0));
+		// A flowing field without a sort order counts as 10.
+		arranged.AddRange(flowing.OrderBy(f => Number(f, "sort_order") ?? 10));
+
+		foreach (XmlElement field in arranged)
+		{
+			if (!done.Add(field))
+			{
+				continue;
+			}
+			ordered.Add(field);
+			List<XmlElement> inside;
+			if (contained.TryGetValue(field, out inside))
+			{
+				Emit(inside);
+			}
+		}
+	}
+
+	Emit(topLevel);
+
+	// Group boxes that contain each other are never reached from the top; their fields
+	// keep their field order at the end.
+	foreach (XmlElement field in fields)
+	{
+		if (done.Add(field))
+		{
+			ordered.Add(field);
+		}
+	}
+	return ordered;
+}
+
+// ---------------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------------
+
+// The job's targets, in the order of their main sheets: (ItemType id, ids of the items to
+// pre-fill). The job's targets property holds them as JSON:
+//   [ { "itemTypeId": "...", "prefillIds": [ "...", ... ] }, ... ]
+// A job without it has one target: its
+// target_itemtype, with the items of prefill_idlist. The first target is always the job's
+// target_itemtype, and an ItemType is a target once.
+List<Tuple<string, List<string>>> JobTargets(XmlElement job)
+{
+	List<Tuple<string, List<string>>> targets = new List<Tuple<string, List<string>>>();
+	string first = Text(job, "target_itemtype");
+	string text = Text(job, "targets").Trim();
+	if (text.Length == 0)
+	{
+		if (first.Length > 0)
+		{
+			targets.Add(Tuple.Create(first, IdList(Text(job, "prefill_idlist").Split(','))));
+		}
+	}
+	else
+	{
+		Newtonsoft.Json.Linq.JArray entries = null;
+		try
+		{
+			entries = Newtonsoft.Json.Linq.JToken.Parse(text) as Newtonsoft.Json.Linq.JArray;
+		}
+		catch (Newtonsoft.Json.JsonException)
+		{
+			entries = null;
+		}
+		if (entries == null)
+		{
+			throw new ApplicationException("The job's list of target ItemTypes can't be read. Choose the targets on the job's Form again.");
+		}
+		foreach (Newtonsoft.Json.Linq.JToken entry in entries)
+		{
+			Newtonsoft.Json.Linq.JObject target = entry as Newtonsoft.Json.Linq.JObject;
+			string id = target == null || target["itemTypeId"] == null ? "" : ((string)target["itemTypeId"] ?? "").Trim().ToUpperInvariant();
+			if (!IsId(id))
+			{
+				throw new ApplicationException("The job's list of target ItemTypes is damaged: '" + id + "' is not an ItemType id. Choose the targets on the job's Form again.");
+			}
+			if (targets.Any(t => t.Item1 == id))
+			{
+				throw new ApplicationException("The job names the same ItemType twice as a target. An ItemType can be a target of a job once.");
+			}
+			Newtonsoft.Json.Linq.JArray prefill = target["prefillIds"] as Newtonsoft.Json.Linq.JArray;
+			targets.Add(Tuple.Create(id, IdList(prefill == null ? new string[0] : prefill.Select(value => value.Type == Newtonsoft.Json.Linq.JTokenType.String ? (string)value : "#"))));
+		}
+		if (targets.Count > 0 && targets[0].Item1 != first.ToUpperInvariant())
+		{
+			throw new ApplicationException("The job's first target is not its target ItemType. Open the job, and save it again from its Form.");
+		}
+	}
+	if (targets.Count == 0)
+	{
+		throw new ApplicationException("The job has no target ItemType.");
+	}
+	return targets;
+}
+
+// Item ids given as text, without blanks and repeats. A text that is no id means the list is damaged.
+List<string> IdList(IEnumerable<string> values)
+{
+	List<string> ids = new List<string>();
+	foreach (string value in values)
+	{
+		string id = (value ?? "").Trim();
+		if (id.Length == 0)
+		{
+			continue;
+		}
+		if (!IsId(id))
+		{
+			throw new ApplicationException("The job's list of items to pre-fill is damaged: '" + id + "' is not an item id.");
+		}
+		if (!ids.Contains(id, StringComparer.OrdinalIgnoreCase))
+		{
+			ids.Add(id);
+		}
+	}
+	return ids;
+}
+
+// The ids of the job's target ItemTypes, in order (see JobTargets).
+List<string> JobTargetIds(XmlElement job)
+{
+	return JobTargets(job).Select(target => target.Item1).ToList();
+}
+
+bool IsId(string value)
+{
+	return value.Length == 32 && value.All(c => (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f'));
+}
+
+// An input property of the Method, trimmed; empty when it was not given.
+string Input(string name)
+{
+	return (this.getProperty(name, "") ?? "").Trim();
+}
+
+// Runs one AML query as the caller and returns the items found. Finding nothing is an
+// empty result here.
+List<XmlElement> Query(string aml)
+{
+	Item response = inn.applyAML("<AML>" + aml + "</AML>");
+	List<XmlElement> items = new List<XmlElement>();
+	if (response.isError())
+	{
+		if (response.isEmpty())
+		{
+			return items;
+		}
+		throw new ApplicationException(response.getErrorString());
+	}
+	foreach (XmlNode item in response.dom.SelectNodes("//Result/Item"))
+	{
+		items.Add((XmlElement)item);
+	}
+	return items;
+}
+
+// Calls a server action in the caller's session and returns its Result element, or
+// null when the action failed.
+XmlNode CallServer(string action, string body)
+{
+	XmlDocument request = inn.newXMLDocument();
+	XmlDocument response = inn.newXMLDocument();
+	request.LoadXml(body);
+	response.LoadXml("<Empty/>");
+	inn.getConnection().CallAction(action, request, response);
+	if (response.SelectSingleNode("//*[local-name()='Fault']") != null)
+	{
+		return null;
+	}
+	return response.SelectSingleNode("//Result");
+}
+
+// The value of a property; for an item property that came back as a nested item, its id.
+string Text(XmlElement item, string name)
+{
+	XmlElement value = item[name];
+	if (value == null)
+	{
+		return "";
+	}
+	XmlElement nested = value["Item"];
+	return nested == null ? value.InnerText : nested.GetAttribute("id");
+}
+
+string Attribute(XmlElement item, string name, string attribute)
+{
+	XmlElement value = item[name];
+	return value == null ? "" : value.GetAttribute(attribute);
+}
+
+bool Flag(XmlElement item, string name)
+{
+	return Text(item, name) == "1";
+}
+
+int? Number(XmlElement item, string name)
+{
+	int number;
+	return int.TryParse(Text(item, name), NumberStyles.Integer, CultureInfo.InvariantCulture, out number) ? (int?)number : null;
+}
+
+// The label in the session language, or the name when there is no label.
+string Label(XmlElement item)
+{
+	string label = Text(item, "label");
+	return label.Length > 0 ? label : Text(item, "name");
+}
+
+string NullIfEmpty(string value)
+{
+	return value.Length == 0 ? null : value;
+}
+
+void AddOnce(List<string> list, string value)
+{
+	if (value.Length > 0 && !list.Contains(value))
+	{
+		list.Add(value);
+	}
+}
+
+// Items by their sort_order, those without one last. The sort keeps the given order
+// of items that share a sort_order.
+IOrderedEnumerable<XmlElement> SortedBySortOrder(IEnumerable<XmlElement> items)
+{
+	return items.OrderBy(i => Number(i, "sort_order") ?? int.MaxValue);
+}
+
+string Xml(string value)
+{
+	return value.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;").Replace("'", "&apos;");
+}
+
+// The values of an AML "in" condition: each one quoted, with any quote inside doubled.
+string InList(IEnumerable<string> values)
+{
+	return Xml(string.Join(",", values.Select(v => "'" + v.Replace("'", "''") + "'")));
+}

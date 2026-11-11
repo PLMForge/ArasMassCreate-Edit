@@ -1,0 +1,1391 @@
+/*
+ * Mass Create & Edit - the tool on the job Form.
+ *
+ * The tool fills the Form's frame, which fills the job's item window, the way the
+ * Query Definition and MAC Policy editors fill theirs: a toolbar, a header, two
+ * tabs, and the panel of the current tab, which scrolls on its own.
+ *
+ * Buttons, inputs, drop-downs, tick boxes, tabs, grid cells and dialogs are Aras's
+ * own classes, so they look as they do in the rest of the client and follow its
+ * theme. This file lays them out and sets no colours on them. The tool's own boxes
+ * are transparent and take the colour of the text: their lines and tints are mixed
+ * from it. The few hues of their own (the colours of the actions, the states and
+ * the targets) are mixed with the text colour or laid over the background as a
+ * tint, so they read on a light and on a dark background alike.
+ */
+
+.mce-app {
+	--mce-accent: var(--theme-primary, #0f66cb);
+	--mce-line: color-mix(in srgb, currentColor 16%, transparent);
+	--mce-tint: color-mix(in srgb, currentColor 4%, transparent);
+	/* The hues of the actions: Create, Update, Delete, Error, and of a warning. */
+	--mce-new: #2e9d4f;
+	--mce-update: #2f7ee0;
+	--mce-delete: #9b51c9;
+	--mce-error: #d6362c;
+	--mce-warning: #d48a00;
+	position: fixed;
+	inset: 0;
+	z-index: 1;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	overflow: hidden;
+	font-family: inherit;
+	font-size: 13px;
+	line-height: 1.45;
+	color: inherit;
+	background: transparent;
+	white-space: normal;
+}
+
+.mce-app *,
+.mce-app *::before,
+.mce-app *::after,
+.mce-dialog,
+.mce-dialog *,
+.mce-dialog *::before,
+.mce-dialog *::after {
+	box-sizing: border-box;
+}
+
+/* Text in the tool takes the tool's size and is shown as written, whatever the Form's styles set.
+   Elements with Aras's classes keep their own. */
+.mce-app *:not([class*='aras-']),
+.mce-dialog *:not([class*='aras-']) {
+	font-size: inherit;
+	text-transform: none;
+}
+
+.mce-app p,
+.mce-dialog p {
+	margin: 0;
+}
+
+.mce-icon {
+	flex: 0 0 auto;
+	width: 16px;
+	height: 16px;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 2;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+.aras-button > .mce-icon {
+	align-self: center;
+	margin-right: 6px;
+}
+
+.mce-muted {
+	color: color-mix(in srgb, currentColor 70%, transparent);
+}
+
+.mce-help {
+	color: color-mix(in srgb, currentColor 70%, transparent);
+	line-height: 1.45;
+}
+
+.mce-strong {
+	font-weight: 600;
+}
+
+.mce-gap {
+	flex: 1 1 auto;
+}
+
+.mce-error,
+.mce-error-text,
+.mce-cell-error {
+	color: color-mix(in srgb, var(--mce-error, #d6362c) 80%, currentColor);
+}
+
+.mce-error {
+	font-weight: 600;
+}
+
+.mce-warning-text,
+.mce-cell-warning {
+	color: color-mix(in srgb, var(--mce-warning, #d48a00) 75%, currentColor);
+}
+
+/* A line of controls and text, wrapping when narrow */
+.mce-line {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px 8px;
+	min-height: 28px;
+}
+
+.mce-line-center {
+	justify-content: center;
+}
+
+/* --- Toolbar --- */
+
+.mce-bar {
+	display: flex;
+	flex: 0 0 auto;
+	align-items: center;
+	gap: 4px;
+	min-height: 48px;
+	padding: 6px 10px;
+	border-bottom: 1px solid var(--mce-line);
+}
+
+.mce-tools {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.mce-tool {
+	white-space: nowrap;
+}
+
+.mce-tool > .mce-icon {
+	margin-right: 6px;
+}
+
+.mce-bar-separator {
+	align-self: stretch;
+	width: 1px;
+	margin: 6px 6px;
+	background: var(--mce-line);
+}
+
+.mce-bar-status {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	min-width: 0;
+	margin-left: auto;
+	padding-left: 12px;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+.mce-status {
+	font-weight: 600;
+}
+
+.mce-status:empty {
+	display: none;
+}
+
+.mce-spinner {
+	display: inline-block;
+	width: 12px;
+	height: 12px;
+	margin-right: 8px;
+	vertical-align: -1px;
+	border: 2px solid color-mix(in srgb, currentColor 25%, transparent);
+	border-top-color: currentColor;
+	border-radius: 50%;
+	animation: mce-spin 0.8s linear infinite;
+}
+
+@keyframes mce-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+/* The file inputs of the upload: buttons open them. */
+.mce-file {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	opacity: 0;
+}
+
+/* --- Header --- */
+
+.mce-head {
+	display: flex;
+	flex: 0 0 auto;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 6px 28px;
+	padding: 8px 14px;
+	border-bottom: 1px solid var(--mce-line);
+	background: var(--mce-tint);
+}
+
+.mce-head-field {
+	display: inline-flex;
+	align-items: baseline;
+	gap: 6px;
+	min-width: 0;
+}
+
+.mce-head-label {
+	color: color-mix(in srgb, currentColor 65%, transparent);
+}
+
+.mce-head-value {
+	font-weight: 600;
+}
+
+.mce-state {
+	display: inline-block;
+	padding: 0 10px;
+	border-radius: 10px;
+	line-height: 20px;
+	font-weight: 600;
+	background: color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.mce-state-generated {
+	background: color-mix(in srgb, var(--mce-update, #2f7ee0) 24%, transparent);
+}
+
+.mce-state-validated {
+	background: color-mix(in srgb, var(--mce-warning, #d48a00) 26%, transparent);
+}
+
+.mce-state-imported {
+	background: color-mix(in srgb, var(--mce-new, #2e9d4f) 24%, transparent);
+}
+
+.mce-file-link {
+	max-width: 340px;
+	padding: 0;
+	overflow: hidden;
+	border: 0;
+	background: none;
+	color: color-mix(in srgb, var(--mce-accent) 75%, currentColor);
+	font: inherit;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+	text-decoration: underline;
+	cursor: pointer;
+}
+
+/* --- Steps: Aras's tabs, with the tool's numbered circles --- */
+
+.mce-steps {
+	flex: 0 0 auto;
+	padding: 0 8px;
+	border-bottom: 1px solid var(--mce-line);
+}
+
+.mce-steps .aras-tabs__list {
+	margin: 0;
+	padding: 0;
+}
+
+.mce-step {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	font-weight: 600;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+.mce-step:focus-visible {
+	outline: 2px solid var(--mce-accent);
+	outline-offset: -2px;
+}
+
+.mce-step-number {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 18px;
+	height: 18px;
+	border-radius: 50%;
+	background: color-mix(in srgb, currentColor 14%, transparent);
+	font-size: 11px !important;
+	line-height: 1;
+}
+
+.mce-step-on .mce-step-number {
+	background: var(--mce-accent);
+	color: #ffffff;
+}
+
+/* --- Panels: each scrolls on its own --- */
+
+.mce-panels {
+	position: relative;
+	flex: 1 1 auto;
+	min-height: 0;
+}
+
+.mce-panel {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	overflow: auto;
+	padding: 12px;
+}
+
+.mce-panel[hidden] {
+	display: none !important;
+}
+
+.mce-panel > .mce-job {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.mce-panel-import > .mce-import {
+	flex: 1 0 auto;
+}
+
+.mce-import-top {
+	display: flex;
+	flex: 0 0 auto;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.mce-import-top:empty {
+	display: none;
+}
+
+/* --- Messages: what a run said, and notes --- */
+
+.mce-messages {
+	display: flex;
+	flex: 0 0 auto;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.mce-messages:empty {
+	display: none;
+}
+
+.mce-message,
+.mce-note {
+	padding: 8px 12px;
+	border-left: 3px solid var(--mce-line);
+	border-radius: 0 4px 4px 0;
+	background: var(--mce-tint);
+}
+
+.mce-note {
+	border-left-color: var(--mce-accent);
+}
+
+.mce-message ul {
+	margin: 2px 0 0;
+	padding-left: 18px;
+}
+
+.mce-message-error {
+	border-left-color: var(--mce-error, #d6362c);
+}
+
+.mce-message-done {
+	border-left-color: var(--mce-new, #2e9d4f);
+}
+
+.mce-message-info {
+	border-left-color: var(--mce-accent);
+}
+
+.mce-message-warning {
+	border-left-color: var(--mce-warning, #d48a00);
+}
+
+.mce-target-counts {
+	margin: 2px 0 8px;
+	padding-left: 18px;
+}
+
+/* --- Cards --- */
+
+/* For each target: its Target card and its Relationships card, side by side, one above the other when narrow. */
+.mce-columns {
+	display: grid;
+	grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+	gap: 12px;
+	align-items: start;
+	max-width: 1500px;
+}
+
+@media (max-width: 960px) {
+	.mce-columns {
+		grid-template-columns: minmax(0, 1fr);
+	}
+}
+
+.mce-card {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	min-width: 0;
+	padding: 12px 16px 14px;
+	border: 1px solid var(--mce-line);
+	border-radius: 6px;
+	background: transparent;
+}
+
+.mce-card[hidden] {
+	display: none;
+}
+
+.mce-card-title {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	margin: 0;
+	font-size: 15px !important;
+	font-weight: 600;
+}
+
+.mce-card-count {
+	color: color-mix(in srgb, currentColor 65%, transparent);
+	font-weight: 400;
+}
+
+.mce-setup > .mce-note,
+.mce-setup > .mce-message {
+	max-width: 1500px;
+}
+
+/* A line of a card: the label on the left, the value on the right; one above the other when narrow. */
+.mce-field {
+	display: grid;
+	grid-template-columns: 110px minmax(0, 1fr);
+	gap: 4px 12px;
+	align-items: start;
+}
+
+.mce-field-label {
+	padding-top: 5px;
+	font-weight: 600;
+}
+
+.mce-field-value {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	min-width: 0;
+}
+
+.mce-field-value > .mce-strong:first-child,
+.mce-field-value > .mce-first:first-child {
+	padding-top: 5px;
+}
+
+@media (max-width: 600px) {
+	.mce-field {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.mce-field-label {
+		padding-top: 0;
+	}
+}
+
+/* A job with several targets: a line between them. */
+.mce-target-divider {
+	max-width: 1500px;
+	height: 0;
+	margin: 4px 0;
+	border: 0;
+	border-top: 1px solid var(--mce-line);
+}
+
+.mce-target-add {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 12px;
+	max-width: 1500px;
+}
+
+.mce-select-wide select {
+	min-width: 240px;
+}
+
+/* Chips: the key, the selected items and the match columns */
+.mce-chips {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+}
+
+.mce-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	max-width: 100%;
+	min-height: 24px;
+	padding: 1px 4px 1px 10px;
+	border: 1px solid color-mix(in srgb, currentColor 24%, transparent);
+	border-radius: 12px;
+	line-height: 20px;
+}
+
+.mce-chip-fixed {
+	padding-right: 10px;
+}
+
+.mce-chip-text {
+	min-width: 0;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+.mce-chip-missing .mce-chip-text {
+	font-style: italic;
+	opacity: 0.75;
+}
+
+.mce-chip-remove {
+	flex: 0 0 auto;
+	width: 20px;
+	height: 20px;
+	padding: 0;
+	border: 0;
+	border-radius: 50%;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	font-size: 15px !important;
+	line-height: 20px;
+	cursor: pointer;
+}
+
+.mce-chip-remove:hover {
+	background: color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.mce-chip-remove:focus-visible {
+	outline: 2px solid var(--mce-accent);
+}
+
+.mce-chip-more {
+	padding: 0 4px;
+}
+
+/* Tables: Aras's grid cells. The header cell has Aras's solid background, so it stays in view as the rows scroll. */
+.mce-table-box {
+	max-height: 260px;
+	overflow: auto;
+	border: 1px solid var(--mce-line);
+	border-radius: 4px;
+}
+
+.mce-table {
+	width: 100%;
+	border-collapse: separate;
+	border-spacing: 0;
+	table-layout: fixed;
+}
+
+.mce-table .aras-grid-head-cell {
+	position: sticky;
+	top: 0;
+	z-index: 1;
+	height: 30px;
+	text-align: left;
+	font-weight: 600;
+}
+
+.mce-table .aras-grid-row-cell {
+	height: 30px;
+	border-bottom: 1px solid color-mix(in srgb, currentColor 9%, transparent);
+}
+
+.mce-table tbody tr:hover {
+	background: color-mix(in srgb, currentColor 5%, transparent);
+}
+
+.mce-table tr[hidden] {
+	display: none;
+}
+
+.mce-table .mce-table-check {
+	width: 40px;
+}
+
+.mce-table .mce-check > label::before {
+	margin-right: 0;
+}
+
+.mce-table .mce-number {
+	text-align: right;
+}
+
+.mce-table .mce-col-size {
+	width: 90px;
+}
+
+.mce-table .mce-col-action,
+.mce-table .mce-table-action {
+	width: 110px;
+	text-align: right;
+}
+
+.mce-selection-all {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.mce-selection-filter {
+	width: 220px;
+}
+
+/* A tick box with its text: the check box of Aras's Forms, which its label draws; the input is invisible above it. */
+.mce-check {
+	position: relative;
+	display: inline-block;
+	max-width: 100%;
+	line-height: 22px;
+}
+
+.mce-check > label {
+	cursor: pointer;
+}
+
+.mce-check > label::before {
+	margin-right: 8px;
+}
+
+.mce-check-off > label {
+	cursor: default;
+}
+
+/* A setting of the job while it is not edited: its text reads as the Form's values do, not dimmed. */
+form:not(.aras-form_edit-mode) .mce-check.sys_ft_checkbox > input[disabled] + label {
+	color: inherit;
+}
+
+.mce-check > input:focus-visible + label::before {
+	outline: 2px solid var(--mce-accent);
+	outline-offset: 1px;
+}
+
+.mce-tag {
+	margin-left: 6px;
+	color: color-mix(in srgb, currentColor 65%, transparent);
+	font-size: 11px !important;
+}
+
+/* --- Relationships --- */
+
+.mce-sheets {
+	display: flex;
+	flex-direction: column;
+}
+
+.mce-sheet {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding: 8px 0;
+	border-top: 1px solid color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.mce-sheet:first-child {
+	padding-top: 0;
+	border-top: 0;
+}
+
+.mce-sheet:last-child {
+	padding-bottom: 0;
+}
+
+/* A long match key or note wraps, so that it stays inside the box. */
+.mce-sheet,
+.mce-sheet * {
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+
+.mce-sheet-name {
+	font-weight: 600;
+}
+
+.mce-sheet-about {
+	margin-left: 8px;
+}
+
+.mce-sheet-off .mce-sheet-name {
+	font-weight: 400;
+}
+
+.mce-sheet-note {
+	margin-left: 22px !important;
+}
+
+.mce-sheet-detail {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	margin-left: 22px;
+	padding: 10px 12px;
+	border-radius: 4px;
+	background: var(--mce-tint);
+}
+
+.mce-sheet-detail .mce-field {
+	grid-template-columns: 96px minmax(0, 1fr);
+}
+
+/* Flat or Indented */
+.mce-segmented {
+	display: inline-flex;
+	align-self: flex-start;
+	overflow: hidden;
+	border: 1px solid color-mix(in srgb, currentColor 32%, transparent);
+	border-radius: 4px;
+}
+
+.mce-segment {
+	padding: 4px 14px;
+	border: 0;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	cursor: pointer;
+}
+
+.mce-segment + .mce-segment {
+	border-left: 1px solid color-mix(in srgb, currentColor 32%, transparent);
+}
+
+.mce-segment:hover:not(:disabled):not(.mce-segment-on) {
+	background: color-mix(in srgb, currentColor 7%, transparent);
+}
+
+.mce-segment:focus-visible {
+	outline: 2px solid var(--mce-accent);
+	outline-offset: -2px;
+}
+
+.mce-segment-on {
+	background: color-mix(in srgb, var(--mce-accent) 18%, transparent);
+	font-weight: 600;
+}
+
+.mce-segment:disabled {
+	cursor: default;
+	opacity: 0.6;
+}
+
+.mce-consequences {
+	margin: 0;
+	padding-left: 18px;
+}
+
+.mce-consequences li + li {
+	margin-top: 2px;
+}
+
+.mce-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+	margin: 8px 0 0;
+}
+
+/* --- Dialogs: Aras's dialog; the tool sets its size and the spacing of its content --- */
+
+dialog.mce-dialog {
+	width: 512px;
+	max-width: calc(100vw - 32px);
+	max-height: calc(100vh - 32px);
+	font-size: 13px;
+	line-height: 1.45;
+}
+
+.mce-dialog .aras-dialog__content {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	padding: 0 16px 16px;
+}
+
+.mce-dialog .aras-buttons-bar {
+	margin-top: 4px;
+}
+
+.mce-dialog-list {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	max-height: 340px;
+	overflow: auto;
+	padding: 6px 10px;
+	border: 1px solid var(--mce-line);
+	border-radius: 4px;
+}
+
+.mce-dialog-list .mce-check[hidden] {
+	display: none;
+}
+
+.mce-dialog-filter {
+	flex: 1 1 160px;
+	min-width: 0;
+}
+
+/* --- The Import panel --- */
+
+/* The drop zone of the Upload card: also the files dragged over the import section highlight it. */
+.mce-drop {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 10px;
+	padding: 24px 16px;
+	border: 1px dashed color-mix(in srgb, currentColor 35%, transparent);
+	border-radius: 6px;
+	text-align: center;
+}
+
+.mce-drop-target .mce-drop {
+	border-color: var(--mce-accent);
+	background: color-mix(in srgb, var(--mce-accent) 7%, transparent);
+}
+
+.mce-drop-target .mce-upload-card {
+	border-color: var(--mce-accent);
+}
+
+.mce-drop-icon {
+	width: 36px;
+	height: 36px;
+	stroke-width: 1.4;
+	opacity: 0.55;
+}
+
+.mce-drop-title {
+	font-size: 15px !important;
+	font-weight: 600;
+}
+
+.mce-drop .mce-help {
+	max-width: 620px;
+}
+
+.mce-picked {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+/* A click selects the whole path, to copy it with Ctrl+C; the selection is shown in the system's highlight colours. */
+.mce-picked-path {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	user-select: all;
+	cursor: text;
+}
+
+.mce-table .mce-picked-path::selection {
+	background-color: Highlight;
+	color: HighlightText;
+}
+
+.mce-picked-table .mce-col-action,
+.mce-picked-table .mce-table-action {
+	width: 170px;
+}
+
+.mce-picked-table .mce-table-action .mce-button + .mce-button {
+	margin-left: 4px;
+}
+
+/* The text being copied, out of sight while the copy is made. */
+.mce-copy-buffer {
+	position: fixed;
+	top: 0;
+	left: -9999px;
+	opacity: 0;
+}
+
+/* The card of the preview or the result: it fills the room left below the Upload card. */
+.mce-preview-card {
+	flex: 1 0 auto;
+	min-height: 420px;
+}
+
+.mce-preview-head {
+	display: flex;
+	flex: 0 0 auto;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.mce-preview-head:empty {
+	display: none;
+}
+
+.mce-preview-part {
+	display: flex;
+	flex: 1 1 auto;
+	flex-direction: column;
+	gap: 8px;
+	min-height: 360px;
+}
+
+.mce-preview-part:empty {
+	display: none;
+}
+
+/* What the import would do: a box for each action, edged in its colour */
+.mce-counts-row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+.mce-count {
+	display: flex;
+	flex-direction: column;
+	min-width: 104px;
+	padding: 6px 12px;
+	border-left: 3px solid color-mix(in srgb, currentColor 30%, transparent);
+	border-radius: 0 4px 4px 0;
+	background: var(--mce-tint);
+}
+
+.mce-count-new {
+	border-left-color: var(--mce-new, #2e9d4f);
+}
+
+.mce-count-update {
+	border-left-color: var(--mce-update, #2f7ee0);
+}
+
+.mce-count-delete {
+	border-left-color: var(--mce-delete, #9b51c9);
+}
+
+.mce-count-error {
+	border-left-color: var(--mce-error, #d6362c);
+}
+
+.mce-count-number {
+	font-size: 18px !important;
+	font-weight: 500;
+	line-height: 1.3;
+	font-variant-numeric: tabular-nums;
+}
+
+.mce-summary {
+	font-weight: 600;
+}
+
+.mce-label-inline {
+	font-weight: 600;
+}
+
+.mce-issues {
+	padding: 6px 12px;
+	border-left: 3px solid var(--mce-warning, #d48a00);
+	border-radius: 0 4px 4px 0;
+	background: var(--mce-tint);
+}
+
+.mce-issues-error {
+	border-left-color: var(--mce-error, #d6362c);
+}
+
+.mce-issues ul {
+	margin: 2px 0;
+	padding-left: 18px;
+}
+
+/* Sheet tabs and filters above the grid */
+
+.mce-toolbar {
+	display: flex;
+	flex: 0 0 auto;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px 16px;
+	border-bottom: 1px solid var(--mce-line);
+}
+
+.mce-tabs {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-end;
+	gap: 2px;
+}
+
+.mce-tab {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	margin-bottom: -1px;
+	padding: 6px 12px 5px;
+	border: 0;
+	border-bottom: 2px solid transparent;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+.mce-tab:hover {
+	background: color-mix(in srgb, currentColor 6%, transparent);
+}
+
+.mce-tab:focus-visible {
+	outline: 2px solid var(--mce-accent);
+	outline-offset: -2px;
+}
+
+.mce-tab-on {
+	border-bottom-color: var(--mce-accent);
+	color: color-mix(in srgb, var(--mce-accent) 80%, currentColor);
+	font-weight: 600;
+}
+
+.mce-tab-count {
+	color: color-mix(in srgb, currentColor 65%, transparent);
+	font-weight: 400;
+}
+
+.mce-tab-errors {
+	padding: 0 6px;
+	border-radius: 8px;
+	background: color-mix(in srgb, var(--mce-error, #d6362c) 28%, transparent);
+	font-size: 11px !important;
+	font-weight: 600;
+}
+
+/*
+ * With several targets, the sheets of a target share a colour: the same colours as the
+ * workbook's tabs (TARGET_TAB_COLORS in mce-workbook.js), in the order of the targets.
+ */
+.mce-target-0 { --mce-target: #4472c4; }
+.mce-target-1 { --mce-target: #ed7d31; }
+.mce-target-2 { --mce-target: #70ad47; }
+.mce-target-3 { --mce-target: #9b59b6; }
+.mce-target-4 { --mce-target: #ffc000; }
+.mce-target-5 { --mce-target: #1abc9c; }
+
+.mce-tab[class*='mce-target-'] {
+	border-top: 3px solid var(--mce-target);
+}
+
+/* The Result tab of an imported job: the import result, or the preview before the import. */
+.mce-result-views {
+	border-bottom: 1px solid var(--mce-line);
+}
+
+/* The first tab of the next target. */
+.mce-tab-next-target {
+	margin-left: 12px;
+}
+
+.mce-target-mark {
+	display: inline-block;
+	width: 9px;
+	height: 9px;
+	margin-right: 6px;
+	border-radius: 2px;
+	background: var(--mce-target);
+}
+
+.mce-filters {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px 14px;
+	padding: 4px 0;
+}
+
+.mce-filter {
+	cursor: pointer;
+}
+
+.mce-select {
+	display: inline-block;
+}
+
+/* Grid, divider and side pane */
+
+.mce-split {
+	display: flex;
+	flex: 1 1 auto;
+	min-height: 0;
+	border: 1px solid var(--mce-line);
+	border-radius: 4px;
+	overflow: hidden;
+}
+
+.mce-resizing {
+	user-select: none;
+	cursor: col-resize;
+}
+
+.mce-grid-box {
+	flex: 0 0 52%;
+	min-width: 280px;
+	overflow: hidden;
+}
+
+.mce-divider {
+	flex: 0 0 6px;
+	cursor: col-resize;
+	background: color-mix(in srgb, currentColor 8%, transparent);
+}
+
+.mce-divider:hover,
+.mce-divider:focus-visible,
+.mce-resizing .mce-divider {
+	background: color-mix(in srgb, currentColor 28%, transparent);
+	outline: none;
+}
+
+.mce-side {
+	display: flex;
+	flex: 1 1 0;
+	flex-direction: column;
+	min-width: 320px;
+	overflow: hidden;
+}
+
+.mce-row-detail {
+	flex: 0 0 auto;
+	max-height: 40%;
+	overflow: auto;
+	padding: 8px 12px;
+	border-bottom: 1px solid var(--mce-line);
+}
+
+.mce-detail-title {
+	font-weight: 600;
+}
+
+.mce-detail-messages {
+	margin: 2px 0;
+	padding-left: 18px;
+}
+
+/* The item preview pane fills the side: the item's Form, and below it the relationships the import changes. */
+.mce-pane-host {
+	position: relative;
+	display: flex;
+	flex: 1 1 auto;
+	flex-direction: column;
+	min-height: 0;
+	overflow: hidden;
+}
+
+.mce-pane-host[hidden],
+.mce-row-detail[hidden] {
+	display: none;
+}
+
+.mce-pane-note {
+	padding: 8px 12px;
+}
+
+.mce-grid {
+	position: relative;
+	height: 100%;
+	overflow: auto;
+	outline: none;
+}
+
+.mce-grid:focus-visible {
+	box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--mce-accent) 60%, transparent);
+}
+
+.mce-grid-head {
+	position: sticky;
+	top: 0;
+	z-index: 1;
+	display: grid;
+	grid-template-columns: var(--mce-grid-columns);
+	font-weight: 600;
+	user-select: none;
+}
+
+.mce-grid-body {
+	position: relative;
+}
+
+.mce-grid-row {
+	position: absolute;
+	left: 0;
+	right: 0;
+	display: grid;
+	grid-template-columns: var(--mce-grid-columns);
+	height: 26px;
+	border-bottom: 1px solid color-mix(in srgb, currentColor 8%, transparent);
+	cursor: default;
+}
+
+.mce-grid-row:hover {
+	background: color-mix(in srgb, currentColor 5%, transparent);
+}
+
+.mce-grid-row.mce-selected {
+	background: color-mix(in srgb, var(--mce-accent) 16%, transparent);
+}
+
+.mce-cell {
+	overflow: hidden;
+	padding: 0 6px;
+	line-height: 26px;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+.mce-head-cell {
+	position: relative;
+	height: 30px;
+	padding: 0 10px 0 6px;
+	line-height: 28px;
+}
+
+/* The right edge of a column header: dragging it changes the column's width. */
+.mce-col-handle {
+	position: absolute;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	width: 9px;
+	cursor: col-resize;
+}
+
+.mce-col-handle:hover,
+.mce-resizing .mce-col-handle:active {
+	background: color-mix(in srgb, currentColor 25%, transparent);
+}
+
+.mce-cell-number {
+	text-align: right;
+}
+
+.mce-cell-empty {
+	font-style: italic;
+	color: color-mix(in srgb, currentColor 55%, transparent);
+}
+
+.mce-old {
+	text-decoration: line-through;
+	color: color-mix(in srgb, currentColor 60%, transparent);
+}
+
+.mce-new {
+	font-weight: 600;
+}
+
+.mce-grid-empty {
+	padding: 8px;
+}
+
+/* The action of a row: a tint of the action's colour over whatever the theme draws behind it */
+.mce-action {
+	display: inline-block;
+	min-width: 72px;
+	padding: 0 6px;
+	border-radius: 3px;
+	line-height: 18px;
+	text-align: center;
+	font-size: 12px !important;
+	font-weight: 500;
+	background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.mce-action-new {
+	background: color-mix(in srgb, var(--mce-new, #2e9d4f) 26%, transparent);
+}
+
+.mce-action-update {
+	background: color-mix(in srgb, var(--mce-update, #2f7ee0) 26%, transparent);
+}
+
+.mce-action-delete {
+	background: color-mix(in srgb, var(--mce-delete, #9b51c9) 26%, transparent);
+}
+
+.mce-action-error {
+	background: color-mix(in srgb, var(--mce-error, #d6362c) 28%, transparent);
+}
+
+.mce-action-skipped {
+	background: color-mix(in srgb, var(--mce-warning, #d48a00) 28%, transparent);
+}
+
+/* Confirmation, progress and result */
+
+.mce-confirm {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-end;
+	justify-content: space-between;
+	gap: 8px 24px;
+	padding: 10px 14px;
+	border: 1px solid var(--mce-accent);
+	border-radius: 4px;
+}
+
+.mce-counts {
+	margin: 4px 0 6px;
+	border-collapse: separate;
+	border-spacing: 0;
+}
+
+.mce-counts th,
+.mce-counts td {
+	padding: 2px 12px 2px 6px;
+	text-align: left;
+}
+
+.mce-counts .aras-grid-head-cell {
+	height: 28px;
+	font-weight: 600;
+}
+
+.mce-counts .mce-number {
+	text-align: right;
+	font-variant-numeric: tabular-nums;
+}
+
+.mce-counts .mce-total td {
+	border-top: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+	font-weight: 600;
+}
+
+.mce-progress-block {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.mce-progress {
+	width: min(480px, 100%);
+	height: 10px;
+}
+
+.mce-records {
+	flex: 1 1 auto;
+	min-height: 240px;
+	border: 1px solid var(--mce-line);
+	border-radius: 4px;
+}
+
+.mce-shown {
+	font-variant-numeric: tabular-nums;
+}

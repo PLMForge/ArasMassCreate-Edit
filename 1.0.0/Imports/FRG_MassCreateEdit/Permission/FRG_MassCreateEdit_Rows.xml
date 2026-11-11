@@ -1,0 +1,56 @@
+﻿<AML>
+ <Item type="Permission" id="2979715C4BCAE5D1854312C48BB424C4" action="add">
+  <is_private>0</is_private>
+  <name>FRG_MassCreateEdit_Rows</name>
+  <Relationships>
+   <Item type="Access" id="0FBD8F81336D4D3DBDE4517BAE5B4167" action="add">
+    <can_change_access>0</can_change_access>
+    <can_delete>0</can_delete>
+    <can_discover>1</can_discover>
+    <can_get>1</can_get>
+    <can_update>0</can_update>
+    <related_id keyed_name="FRG Mass Create &amp; Edit Viewers" type="Identity">77953FBC52F154425AD47525B82889E9</related_id>
+    <show_permissions_warning>0</show_permissions_warning>
+    <sort_order>512</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit_Rows" type="Permission">2979715C4BCAE5D1854312C48BB424C4</source_id>
+   </Item>
+   <Item type="Access" id="C06F789EB1C646A7B7D88F412B1D82DF" action="add">
+    <can_change_access>0</can_change_access>
+    <can_delete>1</can_delete>
+    <can_discover>1</can_discover>
+    <can_get>1</can_get>
+    <can_update>1</can_update>
+    <related_id keyed_name="FRG Mass Create &amp; Edit Steps" type="Identity">B56E4D1B3F4DDC99AECEC5AFB250BF63</related_id>
+    <show_permissions_warning>0</show_permissions_warning>
+    <sort_order>128</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit_Rows" type="Permission">2979715C4BCAE5D1854312C48BB424C4</source_id>
+   </Item>
+   <Item type="Access" id="D49A72547B284610B08391BFDE8136C9" action="add">
+    <can_change_access>1</can_change_access>
+    <can_delete>1</can_delete>
+    <can_discover>1</can_discover>
+    <can_get>1</can_get>
+    <can_update>1</can_update>
+    <related_id keyed_name="Administrators" type="Identity">2618D6F5A90949BAA7E920D1B04C7EE1</related_id>
+    <show_permissions_warning>0</show_permissions_warning>
+    <sort_order>256</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit_Rows" type="Permission">2979715C4BCAE5D1854312C48BB424C4</source_id>
+   </Item>
+   <Item type="Access" id="E858CD3C181040DA8B3963AE2E1EB507" action="add">
+    <can_change_access>0</can_change_access>
+    <can_delete>0</can_delete>
+    <can_discover>1</can_discover>
+    <can_get>1</can_get>
+    <can_update>0</can_update>
+    <related_id keyed_name="Creator" type="Identity">
+     <Item type="Identity" action="get" select="id">
+      <name>Creator</name>
+     </Item>
+    </related_id>
+    <show_permissions_warning>0</show_permissions_warning>
+    <sort_order>384</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit_Rows" type="Permission">2979715C4BCAE5D1854312C48BB424C4</source_id>
+   </Item>
+  </Relationships>
+ </Item>
+</AML>

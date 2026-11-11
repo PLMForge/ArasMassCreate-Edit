@@ -1,0 +1,10 @@
+﻿<AML>
+ <Item type="Sequence" id="3B30CF32AF6DCEF1DE7414A950CDEB55" action="add">
+  <initial_value>0</initial_value>
+  <pad_to>6</pad_to>
+  <pad_with>0</pad_with>
+  <prefix>MCE-</prefix>
+  <step>1</step>
+  <name>FRG_MassCreateEdit_Number</name>
+ </Item>
+</AML>

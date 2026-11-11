@@ -1,0 +1,9 @@
+﻿<AML>
+ <Item type="CommandBarMenu" id="0CBF2A09FC96729BB40654BF26781084" action="add">
+  <image>../images/ExportToExcel.svg</image>
+  <label xml:lang="en">Bulk Edit</label>
+  <on_click_handler keyed_name="FRG_MCE_BulkEditClick" type="Method">925E70301C409DD2D0653DA62FABF3EA</on_click_handler>
+  <on_init_handler keyed_name="FRG_MCE_BulkEditInit" type="Method">2AE188A3805B9FEB0BADD0E9323BA6D6</on_init_handler>
+  <name>FRG_MassCreateEdit.pmig_BulkEdit</name>
+ </Item>
+</AML>

@@ -1,0 +1,9 @@
+﻿<AML>
+ <Item type="CommandBarMenuButton" id="B4B39A3DE2CDAE4A67F87FCE6FA86BD5" action="add">
+  <additional_data>{"itemTypeId":"406C27A427A7CC469825A8601870AF8E"}</additional_data>
+  <image>../images/ExportToExcel.svg</image>
+  <label xml:lang="en">Mass Create &amp; Edit</label>
+  <parent_menu keyed_name="com.aras.innovator.mpo.toc_Mass Operations" type="CommandBarMenu">69E7F9371B8C4731815FA9618F6953C3</parent_menu>
+  <name>com.aras.innovator.cui_default.toc_FRG_MassCreateEdit_B4B39A3DE2CDAE4A67F87FCE6FA86BD5</name>
+ </Item>
+</AML>

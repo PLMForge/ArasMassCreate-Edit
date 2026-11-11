@@ -1,0 +1,13 @@
+﻿<AML>
+ <Item type="PresentationConfiguration" id="BBFF9C59BEA19CF7767AAF2E0756EE4E" action="add">
+  <name>FRG_MassCreateEdit_Config_PresentationConfiguration</name>
+  <Relationships>
+   <Item type="PresentationCommandBarSection" id="E7015E2410534AA14F55744A196BB52F" action="add">
+    <related_id keyed_name="FRG_MassCreateEdit_Config_TOC_Content" type="CommandBarSection">87D03D953CD5949B85CE49E6B8CCDECD</related_id>
+    <role keyed_name="World" type="Identity">A73B655731924CD0B027E4F4D5FCC0A9</role>
+    <sort_order>128</sort_order>
+    <source_id keyed_name="FRG_MassCreateEdit_Config_PresentationConfiguration" type="PresentationConfiguration">BBFF9C59BEA19CF7767AAF2E0756EE4E</source_id>
+   </Item>
+  </Relationships>
+ </Item>
+</AML>
